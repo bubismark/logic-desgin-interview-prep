@@ -1,0 +1,1304 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>State Machines &mdash; Logic Design Interview Prep</title>
+<meta name="description" content="Moore vs Mealy vs mixed FSMs: a build blueprint, a decision guide, and five fully worked examples.">
+<link rel="stylesheet" href="../assets/style.css">
+<style>
+  /* Layout: single-column study page — intro, side-by-side diagrams, state tables,
+     a shared timing diagram beneath both, then encoding + code notes */
+  :root{
+    --bg:#faf8f5; --surface:#ffffff; --ink:#20211f; --sub:#5b5d58;
+    --line:#c9c4ba; --grid:#e7e2d8;
+    --accent:#b5502f;  /* Mealy / transition-driven */
+    --accent2:#2f6b5e; /* Moore / state-driven */
+    --code-bg:#f0ede6; --code-ink:#2a2b28;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#1b1c19; --surface:#232420; --ink:#ece9e2; --sub:#a8a89f;
+      --line:#4a4b45; --grid:#33342f;
+      --accent:#e08a63; --accent2:#6fbfa8;
+      --code-bg:#2a2b26; --code-ink:#e5e2da;
+      color-scheme:dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#1b1c19; --surface:#232420; --ink:#ece9e2; --sub:#a8a89f;
+    --line:#4a4b45; --grid:#33342f;
+    --accent:#e08a63; --accent2:#6fbfa8;
+    --code-bg:#2a2b26; --code-ink:#e5e2da;
+    color-scheme:dark;
+  }
+
+  *{box-sizing:border-box}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family: "Source Sans 3", Arial, sans-serif;
+    padding-inline:16px; padding-block:32px;
+    max-width:920px; margin-inline:auto;
+    line-height:1.55;
+  }
+  h1,h2,h3{font-family:"Fraunces","Georgia",serif; font-weight:600; text-wrap:balance}
+  h1{font-size:1.9rem; margin-bottom:.2em}
+  .kicker{color:var(--sub); font-size:.95rem; margin-bottom:2em}
+  h2{font-size:1.35rem; margin-top:2.4em; border-top:1px solid var(--line); padding-top:1em}
+  h3{font-size:1.05rem; margin-bottom:.3em}
+  p{max-width:65ch}
+  code, pre{font-family:"IBM Plex Mono","SF Mono",monospace}
+  code{background:var(--code-bg); color:var(--code-ink); padding:.1em .35em; border-radius:4px; font-size:.9em}
+
+  .cols{display:grid; grid-template-columns:1fr 1fr; gap:24px; align-items:start}
+  @media (max-width:700px){ .cols{grid-template-columns:1fr} }
+  .cols3{display:grid; grid-template-columns:1fr 1fr 1fr; gap:20px; align-items:start}
+  @media (max-width:820px){ .cols3{grid-template-columns:1fr} }
+
+  .steps{display:grid; gap:14px; margin-top:1em}
+  .step{display:grid; grid-template-columns:2.4em 1fr; gap:14px; min-width:0}
+  .step .num{
+    font-family:"Fraunces",serif; font-size:1.3rem; color:var(--sub);
+    line-height:1; padding-top:.1em;
+  }
+  .step p{margin:0; max-width:60ch}
+  .step h3{margin:0 0 .2em}
+
+  .decision{display:grid; gap:10px; margin-top:1em}
+  .decision .row{
+    display:grid; grid-template-columns:1fr auto; gap:16px; align-items:center;
+    border:1px solid var(--line); border-radius:8px; padding:10px 14px; background:var(--surface);
+  }
+  .decision .row span.tag{
+    font-size:.82rem; font-weight:600; padding:.25em .7em; border-radius:99px; white-space:nowrap;
+  }
+  .tag.mealy{background:color-mix(in srgb, var(--accent) 18%, transparent); color:var(--accent)}
+  .tag.moore{background:color-mix(in srgb, var(--accent2) 18%, transparent); color:var(--accent2)}
+  .tag.mixed{background:var(--code-bg); color:var(--sub)}
+
+  .toc{font-size:.85rem; color:var(--sub); margin-bottom:2em; display:flex; flex-wrap:wrap; gap:.3em .6em}
+  .toc a{color:var(--sub); text-decoration:underline; text-underline-offset:2px}
+  .toc a:hover{color:var(--ink)}
+  .toc span.sep{opacity:.5}
+
+  .card{
+    background:var(--surface); border:1px solid var(--line); border-radius:10px;
+    padding:18px; min-width:0;
+  }
+  .card h3{display:flex; align-items:center; gap:.5em}
+  .swatch{width:.8em; height:.8em; border-radius:50%; display:inline-block}
+  .swatch.mealy{background:var(--accent)}
+  .swatch.moore{background:var(--accent2)}
+
+  figure{margin:0}
+  figcaption{font-size:.85rem; color:var(--sub); margin-top:.6em}
+
+  svg text{ fill:currentColor; font-family:"IBM Plex Mono","SF Mono",monospace; }
+
+  table{border-collapse:collapse; width:100%; font-size:.92rem; margin-top:.8em}
+  th,td{border:1px solid var(--line); padding:.4em .6em; text-align:center}
+  th{background:var(--code-bg); font-weight:600}
+  .tablewrap{overflow-x:auto}
+
+  pre.code{
+    background:var(--code-bg); color:var(--code-ink);
+    padding:14px 16px; border-radius:8px; overflow-x:auto; font-size:.85rem; line-height:1.5;
+  }
+
+  .callout{
+    border-left:3px solid var(--accent); padding:.2em 1em; margin:1.4em 0; color:var(--sub); font-size:.95rem;
+  }
+
+  .timing-wrap{overflow-x:auto}
+</style>
+</head>
+<body>
+
+<nav class="site-nav">
+  <a href="../index.html">Logic Design Interview Prep</a><span class="crumb-sep">/</span><span>State Machines</span>
+  <span class="spacer"></span>
+  <a class="practice-link" href="exercises.html">Practice exercises &rarr;</a>
+</nav>
+
+<main>
+
+<h1>Moore vs. Mealy, side by side</h1>
+<p class="kicker">Same detector, two machines. The circuit you'd wire is different, and so is when the output arrives.</p>
+
+<nav class="toc" aria-label="Page sections">
+<a href="#blueprint">Blueprint</a><span class="sep">·</span><a href="#choosing">Choosing Moore / Mealy / Mixed</a><span class="sep">·</span><a href="#encoding">Encoding</a><span class="sep">·</span><a href="#example-moore">Example: Moore</a><span class="sep">·</span><a href="#example-mealy">Example: Mealy</a><span class="sep">·</span><a href="#example-mixed">Example: Mixed</a><span class="sep">·</span><a href="#example-async">Example: Async input</a><span class="sep">·</span><a href="#example-arbiter">Example: Arbiter</a><span class="sep">·</span><a href="exercises.html"><strong>Practice exercises &rarr;</strong></a>
+</nav>
+
+<p>The example: a sequence detector watching a single-bit input stream, one bit per clock, that raises <code>Y</code> whenever it has just seen two consecutive <code>1</code>s (overlap allowed, so <code>1 1 1</code> asserts <code>Y</code> on both the second and third bit). It's small enough to draw completely, and it's the textbook case where Moore needs an extra state that Mealy doesn't.</p>
+
+<div class="cols">
+
+<div class="card">
+<h3><span class="swatch mealy"></span>Mealy — output on the arrow</h3>
+<figure>
+<svg viewBox="0 0 320 220" role="img" aria-label="Mealy machine with two states S0 and S1; the transition from S1 to S1 on input 1 is labeled 1/1, meaning the output fires immediately on that transition.">
+  <defs>
+    <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+  <!-- states -->
+  <circle cx="90" cy="110" r="34" fill="none" stroke="currentColor" stroke-width="2"/>
+  <text x="90" y="115" text-anchor="middle" font-size="15">S0</text>
+  <circle cx="230" cy="110" r="34" fill="none" stroke="currentColor" stroke-width="2"/>
+  <text x="230" y="115" text-anchor="middle" font-size="15">S1</text>
+
+  <!-- reset arrow into S0 -->
+  <line x1="20" y1="110" x2="54" y2="110" stroke="currentColor" stroke-width="2" marker-end="url(#a1)"/>
+  <text x="18" y="98" text-anchor="start" font-size="11">start</text>
+
+  <!-- S0 -> S1 on 1/0 -->
+  <path d="M122,98 C160,80 190,80 198,98" fill="none" stroke="currentColor" stroke-width="2" marker-end="url(#a1)"/>
+  <text x="160" y="72" text-anchor="middle" font-size="12">1 / 0</text>
+
+  <!-- S1 -> S0 on 0/0 -->
+  <path d="M198,124 C160,145 122,145 122,124" fill="none" stroke="currentColor" stroke-width="2" marker-end="url(#a1)"/>
+  <text x="160" y="163" text-anchor="middle" font-size="12">0 / 0</text>
+
+  <!-- S0 self loop on 0/0 -->
+  <path d="M68,88 C48,60 68,38 92,58" fill="none" stroke="currentColor" stroke-width="2" marker-end="url(#a1)"/>
+  <text x="55" y="45" text-anchor="middle" font-size="12">0 / 0</text>
+
+  <!-- S1 self loop on 1/1, the detecting edge -->
+  <path d="M252,88 C272,60 252,38 228,58" fill="none" stroke="var(--accent)" stroke-width="2.5" marker-end="url(#a1)"/>
+  <text x="265" y="45" text-anchor="middle" font-size="12" fill="var(--accent)">1 / 1</text>
+</svg>
+<figcaption>Two states. Output is written on the transition label (<code>input / output</code>) — the <code>1/1</code> self-loop on S1 is the only edge that asserts <code>Y</code>, and it fires the instant that second <code>1</code> arrives.</figcaption>
+</figure>
+
+<div class="tablewrap">
+<table>
+<tr><th>state</th><th>input=0</th><th>input=1</th></tr>
+<tr><td>S0</td><td>S0 / 0</td><td>S1 / 0</td></tr>
+<tr><td>S1</td><td>S0 / 0</td><td>S1 / 1</td></tr>
+</table>
+</div>
+</div>
+
+<div class="card">
+<h3><span class="swatch moore"></span>Moore — output on the state</h3>
+<figure>
+<svg viewBox="0 0 340 220" role="img" aria-label="Moore machine with three states S0, S1 and S2; S2 is the only state whose output is 1, and reaching it requires one extra state compared to the Mealy version.">
+  <defs>
+    <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+  <circle cx="60" cy="130" r="32" fill="none" stroke="currentColor" stroke-width="2"/>
+  <text x="60" y="126" text-anchor="middle" font-size="14">S0</text>
+  <text x="60" y="142" text-anchor="middle" font-size="10" fill="var(--sub)">Y=0</text>
+
+  <circle cx="180" cy="130" r="32" fill="none" stroke="currentColor" stroke-width="2"/>
+  <text x="180" y="126" text-anchor="middle" font-size="14">S1</text>
+  <text x="180" y="142" text-anchor="middle" font-size="10" fill="var(--sub)">Y=0</text>
+
+  <circle cx="300" cy="130" r="32" fill="none" stroke="var(--accent2)" stroke-width="2.5"/>
+  <text x="300" y="126" text-anchor="middle" font-size="14">S2</text>
+  <text x="300" y="142" text-anchor="middle" font-size="10" fill="var(--accent2)">Y=1</text>
+
+  <line x1="0" y1="130" x2="26" y2="130" stroke="currentColor" stroke-width="2" marker-end="url(#a2)"/>
+  <text x="2" y="118" text-anchor="start" font-size="11">start</text>
+
+  <!-- S0 -> S1 on 1 -->
+  <path d="M92,118 C120,100 140,100 150,118" fill="none" stroke="currentColor" stroke-width="2" marker-end="url(#a2)"/>
+  <text x="120" y="92" text-anchor="middle" font-size="12">1</text>
+
+  <!-- S1 -> S2 on 1 -->
+  <path d="M212,118 C240,100 260,100 270,118" fill="none" stroke="currentColor" stroke-width="2" marker-end="url(#a2)"/>
+  <text x="240" y="92" text-anchor="middle" font-size="12">1</text>
+
+  <!-- S1 -> S0 on 0 -->
+  <path d="M150,142 C120,165 92,165 92,142" fill="none" stroke="currentColor" stroke-width="2" marker-end="url(#a2)"/>
+  <text x="120" y="182" text-anchor="middle" font-size="12">0</text>
+
+  <!-- S2 -> S0 on 0 (long arc back) -->
+  <path d="M280,158 C220,215 100,215 68,164" fill="none" stroke="currentColor" stroke-width="2" marker-end="url(#a2)"/>
+  <text x="180" y="208" text-anchor="middle" font-size="12">0</text>
+
+  <!-- S0 self loop on 0 -->
+  <path d="M40,105 C22,80 40,58 62,80" fill="none" stroke="currentColor" stroke-width="2" marker-end="url(#a2)"/>
+  <text x="28" y="65" text-anchor="middle" font-size="12">0</text>
+
+  <!-- S2 self loop on 1 -->
+  <path d="M280,105 C262,80 280,58 302,80" fill="none" stroke="var(--accent2)" stroke-width="2.5" marker-end="url(#a2)"/>
+  <text x="290" y="65" text-anchor="middle" font-size="12" fill="var(--accent2)">1</text>
+</svg>
+<figcaption>Three states. Output is written inside the state itself — S2 means "the last two bits were both 1," and only S2 outputs <code>Y=1</code>. Reaching S2 needed a state Mealy didn't: S1 alone can't tell you the run is 2 long yet.</figcaption>
+</figure>
+
+<div class="tablewrap">
+<table>
+<tr><th>state</th><th>Y</th><th>input=0</th><th>input=1</th></tr>
+<tr><td>S0</td><td>0</td><td>S0</td><td>S1</td></tr>
+<tr><td>S1</td><td>0</td><td>S0</td><td>S2</td></tr>
+<tr><td>S2</td><td>1</td><td>S0</td><td>S2</td></tr>
+</table>
+</div>
+</div>
+
+</div>
+
+<div class="callout">The extra state is the real cost of Moore here, not a stylistic choice: since Y can only depend on which state you're <em>in</em>, "last two bits were 1" and "last one bit was 1" have to be different states, even though Mealy can tell them apart using the same state plus the current input.</div>
+
+<h2>What that costs you in time</h2>
+<p>Feed both machines the same bit stream, cycle by cycle, off the same clock. This is the part that actually shows up in interviews: Mealy's output reacts within the same cycle the input changes (combinational path from input to output), while Moore's output only updates on the next clock edge, one cycle after the state that causes it.</p>
+
+<div class="timing-wrap">
+<svg viewBox="0 0 640 260" width="640" role="img" aria-label="Timing diagram: clock, input bit stream 0 1 1 0 1 1 1, Mealy output Y asserted combinationally in the same cycle as the second consecutive 1, Moore output Y asserted one cycle later, aligned to the clock edge.">
+  <!-- grid columns for 7 bit-cycles -->
+  <g stroke="var(--grid)" stroke-width="1">
+    <line x1="70" y1="10" x2="70" y2="230"/>
+    <line x1="150" y1="10" x2="150" y2="230"/>
+    <line x1="230" y1="10" x2="230" y2="230"/>
+    <line x1="310" y1="10" x2="310" y2="230"/>
+    <line x1="390" y1="10" x2="390" y2="230"/>
+    <line x1="470" y1="10" x2="470" y2="230"/>
+    <line x1="550" y1="10" x2="550" y2="230"/>
+    <line x1="630" y1="10" x2="630" y2="230"/>
+  </g>
+
+  <!-- row labels -->
+  <text x="8" y="30" font-size="12" fill="var(--sub)">clk</text>
+  <text x="8" y="80" font-size="12" fill="var(--sub)">in</text>
+  <text x="8" y="140" font-size="12">Mealy Y</text>
+  <text x="8" y="200" font-size="12">Moore Y</text>
+
+  <!-- clock row: simple ticks -->
+  <g stroke="currentColor" stroke-width="1.5" fill="none">
+    <path d="M70,15 L70,25 L110,25 L110,15 L150,15 L150,25 L190,25 L190,15 L230,15 L230,25 L270,25 L270,15 L310,15 L310,25 L350,25 L350,15 L390,15 L390,25 L430,25 L430,15 L470,15 L470,25 L510,25 L510,15 L550,15 L550,25 L590,25 L590,15 L630,15"/>
+  </g>
+
+  <!-- input row: bit values 0 1 1 0 1 1 1 across the 7 cells -->
+  <text x="110" y="80" text-anchor="middle" font-size="13">0</text>
+  <text x="190" y="80" text-anchor="middle" font-size="13">1</text>
+  <text x="270" y="80" text-anchor="middle" font-size="13" fill="var(--accent)">1</text>
+  <text x="350" y="80" text-anchor="middle" font-size="13">0</text>
+  <text x="430" y="80" text-anchor="middle" font-size="13">1</text>
+  <text x="510" y="80" text-anchor="middle" font-size="13" fill="var(--accent)">1</text>
+  <text x="590" y="80" text-anchor="middle" font-size="13" fill="var(--accent)">1</text>
+
+  <!-- Mealy Y row: high exactly under the 2nd,3rd consecutive-1 cells (bars at 270, 510, 590) -->
+  <g fill="var(--accent)" opacity="0.85">
+    <rect x="230" y="118" width="80" height="14"/>
+    <rect x="470" y="118" width="160" height="14"/>
+  </g>
+  <g fill="none" stroke="currentColor" stroke-width="1">
+    <rect x="70" y="118" width="560" height="14"/>
+  </g>
+
+  <!-- Moore Y row: same shape but shifted one cycle later (aligned to next clock edge) -->
+  <g fill="var(--accent2)" opacity="0.85">
+    <rect x="310" y="178" width="80" height="14"/>
+    <rect x="550" y="178" width="80" height="14"/>
+  </g>
+  <g fill="none" stroke="currentColor" stroke-width="1">
+    <rect x="70" y="178" width="560" height="14"/>
+  </g>
+
+  <!-- shift annotation -->
+  <path d="M270,215 L310,215" stroke="var(--sub)" stroke-width="1.5" marker-end="url(#a1)"/>
+  <text x="290" y="230" text-anchor="middle" font-size="11" fill="var(--sub)">+1 cycle</text>
+</svg>
+</div>
+<p style="font-size:.9rem;color:var(--sub)">Bit stream: <code>0 1 1 0 1 1 1</code>. Mealy's <code>Y</code> (orange) goes high in the same cycle as each qualifying <code>1</code>; Moore's <code>Y</code> (green) shows the identical shape shifted one full cycle right, because it can only reflect a state the register reached on the previous edge.</p>
+
+<h2>Reading the trade-off</h2>
+<p>Mealy reacts faster and often needs fewer states, but because its output is a combinational function of the input, a glitchy or asynchronous input can glitch <code>Y</code> before the next clock edge cleans it up — a real concern if <code>Y</code> drives something outside the synchronous domain. Moore's output only ever changes on a clock edge, so it's glitch-free and simpler to time-close, at the cost of the extra state (here, one extra state and one extra cycle of latency).</p>
+
+<h2 id="blueprint">Blueprint: turning a problem into a state machine</h2>
+<p>This is the order that actually works when you're staring at a blank page in an interview or at your desk. Skipping straight to RTL is where most FSM bugs are born.</p>
+
+<div class="steps">
+  <div class="step">
+    <div class="num">1</div>
+    <div><h3>Pin down the spec in one precise sentence</h3>
+    <p>"Assert <code>Y</code> for one cycle, the cycle after the second consecutive <code>1</code>, overlaps allowed." Vague specs ("detect two ones") hide the exact bugs that show up later — overlapping vs. non-overlapping, level output vs. one-cycle pulse, what happens on reset mid-sequence. While you're here, check one more thing that's easy to skip: is every input actually synchronous to this block's clock already? If a signal comes from a different clock domain or an off-chip pin (a button, a cable), it needs a synchronizer — and possibly a debounce filter — before it's safe to treat as an FSM input at all. That's a separate problem from the FSM itself (worked example 4 below is entirely about it), but it has to be solved first, not patched in afterward.</p></div>
+  </div>
+  <div class="step">
+    <div class="num">2</div>
+    <div><h3>Find the states by asking what you need to remember</h3>
+    <p>A state is an equivalence class of histories: two different pasts belong in the <em>same</em> state if, for every possible future input, they'd produce identical outputs and land in identical next states. So ask, "what's the minimum fact about everything that already happened that I still need?" For the detector, that fact is just "how long is the current run of 1s" — capped, because once it's ≥2 the exact count stops mattering. That's the whole derivation: states = {run of 0, run of 1, run of ≥2}.</p></div>
+  </div>
+  <div class="step">
+    <div class="num">3</div>
+    <div><h3>Draw it and fill every cell</h3>
+    <p>Every state needs an outgoing transition for every legal input value — no exceptions. A missing transition is either an inferred latch when you get to RTL, or a state diagram that's quietly wrong. If some input combination truly can't happen, route it somewhere safe anyway (see the reset callout below) rather than leaving it undefined. When more than one input can matter at once — two requesters asking in the same cycle, say — "every cell" can mean 2<sup>N</sup> combinations per state, which stops being literally enumerable past a handful of inputs. The way out is the same one real RTL uses: write the logic as a priority chain (<code>if (req0) … else if (req1) … else …</code>) instead of a flat truth table. An if/else chain with a final <code>else</code> is exhaustive by construction, so it still satisfies "every cell filled" — it's just expressed as a priority, not a list (worked example 5 below is built entirely around this).</p></div>
+  </div>
+  <div class="step">
+    <div class="num">4</div>
+    <div><h3>Minimize — merge rows that are identical</h3>
+    <p>Once the table is complete, scan it: if two states have the exact same next-state for every input <em>and</em> the same output treatment, they were never two states — merge them. This is the most common source of an over-built FSM, and it's a two-minute check that regularly halves a state count someone drew too hastily.</p></div>
+  </div>
+  <div class="step">
+    <div class="num">5</div>
+    <div><h3>Choose Moore, Mealy, or a mix</h3>
+    <p>Now that the states are settled, decide how outputs attach to them — the decision guide right below.</p></div>
+  </div>
+  <div class="step">
+    <div class="num">6</div>
+    <div><h3>Pick the encoding, then code it</h3>
+    <p>Binary, one-hot, or gray (table further down), then the two/three-always-block RTL split. Cover every state with a <code>default</code>/<code>else</code> branch, and write directed tests that hit reset, every legal edge, and — deliberately — an unreachable state if your encoding leaves any.</p></div>
+  </div>
+</div>
+
+<div class="callout">A frequent real mistake: modeling a wait duration as states. If what you need to remember is "how many cycles have I waited," don't draw <code>WAIT_1</code>, <code>WAIT_2</code>, … <code>WAIT_16</code> as sixteen states — keep one <code>WAIT</code> state, add a counter register beside the FSM, and let "counter done" be one of the FSM's inputs. States are for control flow and mode; counters are for counting. Confusing the two is the single biggest cause of state count exploding for no reason.</div>
+
+<h2 id="choosing">Choosing Moore, Mealy, or a mix</h2>
+<p>Pick based on what the output actually has to do, not habit. These are the questions that settle it in practice:</p>
+
+<div class="decision">
+  <div class="row"><span>Output must react within the same cycle the input arrives (a handshake, a same-cycle bypass)?</span><span class="tag mealy">Mealy</span></div>
+  <div class="row"><span>Output crosses a clock domain, drives another synchronous block as a level signal, or just needs to never glitch?</span><span class="tag moore">Moore</span></div>
+  <div class="row"><span>You want the waveform to be readable by eye — state alone tells you the output, no need to also check the input?</span><span class="tag moore">Moore</span></div>
+  <div class="row"><span>You're state-count or area constrained and one cycle of extra output latency is genuinely fine?</span><span class="tag mealy">Mealy</span></div>
+  <div class="row"><span>You want Mealy's state count <em>and</em> a glitch-free, clock-aligned output?</span><span class="tag mixed">Registered Mealy</span></div>
+</div>
+
+<p>"Mixing" almost always means one of two things in practice. First, <strong>registered Mealy</strong>: compute the output combinationally from state and input exactly like Mealy (fewest states), but land it in a flop before it leaves the block. You keep Mealy's state count and pay one cycle of latency — the same price Moore would have charged you anyway, except now it's a deliberate pipeline stage instead of a structural requirement. Second, <strong>mixed outputs within one machine</strong>: most signals are Moore (state-only, safe, easy to read) except one urgent control line that's Mealy (state+input, because it truly can't wait a cycle). Both are completely standard; neither is a compromise.</p>
+
+<figure>
+<svg viewBox="0 0 600 345" role="img" aria-label="Block diagram comparing three output architectures. Mealy: the input feeds output logic directly, which drives Y with no flop in between — a live combinational path. Registered Mealy: the same combinational path, but a flop sits between output logic and Y. Moore: output logic reads only the state register, with no input arrow feeding it at all.">
+  <defs>
+    <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+
+  <text x="92" y="65" text-anchor="end" font-size="13" font-weight="600">Mealy</text>
+  <text x="92" y="170" text-anchor="end" font-size="13" font-weight="600">Registered</text>
+  <text x="92" y="186" text-anchor="end" font-size="13" font-weight="600">Mealy</text>
+  <text x="92" y="285" text-anchor="end" font-size="13" font-weight="600">Moore</text>
+
+  <!-- ROW 1: Mealy -->
+  <rect x="100" y="45" width="110" height="50" rx="6" fill="none" stroke="var(--accent2)" stroke-width="2"/>
+  <text x="155" y="66" text-anchor="middle" font-size="12">state reg</text>
+  <text x="155" y="108" text-anchor="middle" font-size="10" fill="var(--accent2)">clocked</text>
+  <line x1="210" y1="70" x2="248" y2="70" stroke="currentColor" stroke-width="2" marker-end="url(#a3)"/>
+  <rect x="250" y="45" width="140" height="50" rx="6" fill="none" stroke="var(--accent)" stroke-width="2"/>
+  <text x="320" y="66" text-anchor="middle" font-size="12">output logic</text>
+  <text x="320" y="108" text-anchor="middle" font-size="10" fill="var(--accent)">combinational</text>
+  <line x1="320" y1="10" x2="320" y2="43" stroke="var(--accent)" stroke-width="2" marker-end="url(#a3)"/>
+  <text x="332" y="22" font-size="11" fill="var(--accent)">in</text>
+  <line x1="390" y1="70" x2="552" y2="70" stroke="var(--accent)" stroke-width="2.5" marker-end="url(#a3)"/>
+  <text x="565" y="75" font-size="13">Y</text>
+
+  <!-- ROW 2: Registered Mealy -->
+  <rect x="100" y="155" width="110" height="50" rx="6" fill="none" stroke="var(--accent2)" stroke-width="2"/>
+  <text x="155" y="176" text-anchor="middle" font-size="12">state reg</text>
+  <text x="155" y="218" text-anchor="middle" font-size="10" fill="var(--accent2)">clocked</text>
+  <line x1="210" y1="180" x2="248" y2="180" stroke="currentColor" stroke-width="2" marker-end="url(#a3)"/>
+  <rect x="250" y="155" width="140" height="50" rx="6" fill="none" stroke="var(--accent)" stroke-width="2"/>
+  <text x="320" y="176" text-anchor="middle" font-size="12">output logic</text>
+  <text x="320" y="218" text-anchor="middle" font-size="10" fill="var(--accent)">combinational</text>
+  <line x1="320" y1="120" x2="320" y2="153" stroke="var(--accent)" stroke-width="2" marker-end="url(#a3)"/>
+  <text x="332" y="132" font-size="11" fill="var(--accent)">in</text>
+  <line x1="390" y1="180" x2="428" y2="180" stroke="var(--accent)" stroke-width="2" marker-end="url(#a3)"/>
+  <rect x="430" y="155" width="80" height="50" rx="6" fill="none" stroke="var(--accent2)" stroke-width="2"/>
+  <text x="470" y="176" text-anchor="middle" font-size="12">flop</text>
+  <text x="470" y="218" text-anchor="middle" font-size="10" fill="var(--accent2)">clocked</text>
+  <line x1="510" y1="180" x2="552" y2="180" stroke="var(--accent2)" stroke-width="2.5" marker-end="url(#a3)"/>
+  <text x="565" y="185" font-size="13">Y</text>
+
+  <!-- ROW 3: Moore -->
+  <rect x="100" y="265" width="110" height="50" rx="6" fill="none" stroke="var(--accent2)" stroke-width="2"/>
+  <text x="155" y="286" text-anchor="middle" font-size="12">state reg</text>
+  <text x="155" y="328" text-anchor="middle" font-size="10" fill="var(--accent2)">clocked</text>
+  <line x1="210" y1="290" x2="248" y2="290" stroke="currentColor" stroke-width="2" marker-end="url(#a3)"/>
+  <rect x="250" y="265" width="140" height="50" rx="6" fill="none" stroke="var(--accent)" stroke-width="2"/>
+  <text x="320" y="286" text-anchor="middle" font-size="12">output logic</text>
+  <text x="320" y="328" text-anchor="middle" font-size="10" fill="var(--accent)">combinational</text>
+  <line x1="390" y1="290" x2="552" y2="290" stroke="var(--accent2)" stroke-width="2.5" marker-end="url(#a3)"/>
+  <text x="565" y="295" font-size="13">Y</text>
+</svg>
+<figcaption>The mechanical difference is just two things: whether the input feeds <code>output logic</code> directly, and whether a flop sits between that logic and <code>Y</code>. Mealy has neither protection; Registered Mealy adds the flop; Moore never lets the input reach the output logic at all.</figcaption>
+</figure>
+
+<div class="tablewrap">
+<table>
+<tr><th></th><th>Mealy</th><th>Registered Mealy</th><th>Moore</th></tr>
+<tr><td>states needed</td><td>fewest</td><td>fewest</td><td>often +1 or more</td></tr>
+<tr><td>output timing</td><td>combinational, same cycle</td><td>registered, +1 cycle</td><td>registered, +1 cycle</td></tr>
+<tr><td>glitch risk from input</td><td>yes</td><td>no</td><td>no</td></tr>
+<tr><td>safe across clock domains / driving external logic</td><td>no</td><td>yes</td><td>yes</td></tr>
+<tr><td>waveform readability</td><td>depends on state + input</td><td>easy once registered</td><td>easiest — output = f(state)</td></tr>
+</table>
+</div>
+
+<h3>Edge cases the simple guide skips</h3>
+<p>The questions above settle most cases, but a few situations don't fit neatly into "pick one":</p>
+
+<div class="steps">
+  <div class="step"><div class="num">·</div><div>
+  <p><b>The input isn't synchronous to this clock at all.</b> This isn't a Moore-vs-Mealy question — it's a prerequisite you solve before either one applies. A signal from another clock domain, or off-chip, needs a synchronizer (and often a debounce filter) first; only the synchronizer's clean output is a legal FSM input. Skipping this doesn't just risk a glitch, it risks metastability propagating into your state register itself. Worked example 4 below builds one end to end.</p>
+  </div></div>
+  <div class="step"><div class="num">·</div><div>
+  <p><b>"Moore can't glitch" has a footnote.</b> Moore's output can't glitch <em>from the input</em>, because the input never reaches it. But if state is binary- or gray-encoded, a transition that flips more than one bit can still show a brief, transient wrong decode on the output logic as the bits settle at slightly different times — a real decode glitch, just not an input-driven one. One-hot encoding sidesteps this (exactly one bit ever changes meaning per transition), which is part of why timing-sensitive Moore outputs on FPGAs often go one-hot even past the point where it costs extra flops.</p>
+  </div></div>
+  <div class="step"><div class="num">·</div><div>
+  <p><b>More than one input can be asserted at once.</b> Two requesters asking for the same resource in the same cycle is not a corner case to patch in later — it's part of the spec, and it changes how you fill the table (see step 3 of the blueprint, and worked example 5 below, which is an arbiter built entirely around this).</p>
+  </div></div>
+  <div class="step"><div class="num">·</div><div>
+  <p><b>An unreachable or corrupted state needs a way home.</b> One-hot encoding has states that are illegal by construction (two bits set, or none); binary encoding with N not a power of two leaves unused codes too. A single-event upset, an uninitialized simulation value, or a tooling bug can land the register there. A <code>default</code> branch that routes every unlisted code back to a safe reset state isn't defensive boilerplate — for anything safety- or mission-critical it's often an explicit sign-off requirement, and it's one line to add.</p>
+  </div></div>
+</div>
+
+<h2>Verilog: the two/three-always-block shape</h2>
+<p>Both are written the same way in RTL: separate the registered state from the combinational logic that computes the next state and the output. Mealy's output block reads <code>state</code> <em>and</em> the input; Moore's output block reads only <code>state</code>.</p>
+
+<div class="cols3">
+<div class="card">
+<h3><span class="swatch mealy"></span>Mealy</h3>
+<pre class="code">// state register
+always @(posedge clk or posedge rst)
+  if (rst) state &lt;= S0;
+  else     state &lt;= next_state;
+
+// next-state logic
+always @(*) begin
+  next_state = state;
+  case (state)
+    S0: next_state = in ? S1 : S0;
+    S1: next_state = in ? S1 : S0;
+  endcase
+end
+
+// output logic -- reads state AND in
+always @(*)
+  Y = (state == S1) &amp;&amp; in;</pre>
+</div>
+
+<div class="card">
+<h3>Registered Mealy</h3>
+<pre class="code">// state register -- identical to plain Mealy
+always @(posedge clk or posedge rst)
+  if (rst) state &lt;= S0;
+  else     state &lt;= next_state;
+
+// next-state logic -- identical to plain Mealy
+always @(*) begin
+  next_state = state;
+  case (state)
+    S0: next_state = in ? S1 : S0;
+    S1: next_state = in ? S1 : S0;
+  endcase
+end
+
+// combinational Mealy output ...
+wire Y_comb = (state == S1) &amp;&amp; in;
+
+// ... landed in a flop before it leaves the block
+always @(posedge clk or posedge rst)
+  if (rst) Y &lt;= 1'b0;
+  else     Y &lt;= Y_comb;</pre>
+</div>
+
+<div class="card">
+<h3><span class="swatch moore"></span>Moore</h3>
+<pre class="code">// state register
+always @(posedge clk or posedge rst)
+  if (rst) state &lt;= S0;
+  else     state &lt;= next_state;
+
+// next-state logic
+always @(*) begin
+  next_state = state;
+  case (state)
+    S0: next_state = in ? S1 : S0;
+    S1: next_state = in ? S2 : S0;
+    S2: next_state = in ? S2 : S0;
+  endcase
+end
+
+// output logic -- reads state only
+always @(*)
+  Y = (state == S2);</pre>
+</div>
+</div>
+
+<h2 id="encoding">One more axis: how the state itself is stored</h2>
+<p>Independent of Moore vs. Mealy, you still have to pick an encoding for <code>state</code>. For this 2-3 state example it barely matters, but it's a near-guaranteed follow-up question:</p>
+
+<div class="tablewrap">
+<table>
+<tr><th>encoding</th><th>flops for N states</th><th>decode logic</th><th>typical use</th></tr>
+<tr><td>binary</td><td>⌈log₂N⌉</td><td>denser, more logic per transition</td><td>ASIC, flop-scarce designs</td></tr>
+<tr><td>one-hot</td><td>N</td><td>simplest, fastest decode</td><td>FPGA, timing-critical FSMs</td></tr>
+<tr><td>gray</td><td>⌈log₂N⌉</td><td>only 1 bit changes per transition</td><td>CDC-safe FSMs (e.g. FIFO pointers)</td></tr>
+</table>
+</div>
+
+<h2 id="example-moore">Worked example — Moore: traffic light with pedestrian crossing</h2>
+<p>A meatier problem, run through the blueprint end to end.</p>
+
+<div class="steps">
+  <div class="step"><div class="num">1</div><div>
+  <h3>Spec</h3>
+  <p>A road crossing a pedestrian walkway. Cars normally see green. A synchronized, single-cycle pulse <code>ped_req</code> asks for a walk phase. Once granted, the sequence is fixed: green → yellow (fixed duration) → red-with-walk (fixed duration) → red-clearance (fixed duration, cars still stopped so stragglers finish crossing) → green again. A new <code>ped_req</code> arriving mid-sequence must not restart or extend anything — it's simply ignored until the cycle completes.</p>
+  </div></div>
+
+  <div class="step"><div class="num">2</div><div>
+  <h3>Find the states</h3>
+  <p>What must be remembered is entirely "which phase of the fixed sequence am I in" — four values: <b>GREEN</b>, <b>YELLOW</b>, <b>RED_WALK</b>, <b>RED_CLEAR</b>. Notice what's <em>not</em> a state: how many cycles remain in the current phase. That's a duration, not a mode, so per the counter-vs-state tip above it becomes one external down-counter shared by all three timed phases, exposing a single <code>timer_done</code> input back to the FSM instead of thirty extra states.</p>
+  </div></div>
+
+  <div class="step"><div class="num">3</div><div>
+  <h3>State table — every cell filled</h3>
+  <div class="tablewrap">
+  <table>
+  <tr><th>state</th><th>condition</th><th>next state</th><th>car light</th><th>ped light</th><th>timer_load</th></tr>
+  <tr><td>GREEN</td><td>¬ped_req</td><td>GREEN</td><td>green</td><td>don't walk</td><td>0</td></tr>
+  <tr><td>GREEN</td><td>ped_req</td><td>YELLOW</td><td>green</td><td>don't walk</td><td>1</td></tr>
+  <tr><td>YELLOW</td><td>¬timer_done</td><td>YELLOW</td><td>yellow</td><td>don't walk</td><td>0</td></tr>
+  <tr><td>YELLOW</td><td>timer_done</td><td>RED_WALK</td><td>yellow</td><td>don't walk</td><td>1</td></tr>
+  <tr><td>RED_WALK</td><td>¬timer_done</td><td>RED_WALK</td><td>red</td><td>walk</td><td>0</td></tr>
+  <tr><td>RED_WALK</td><td>timer_done</td><td>RED_CLEAR</td><td>red</td><td>walk</td><td>1</td></tr>
+  <tr><td>RED_CLEAR</td><td>¬timer_done</td><td>RED_CLEAR</td><td>red</td><td>don't walk</td><td>0</td></tr>
+  <tr><td>RED_CLEAR</td><td>timer_done</td><td>GREEN</td><td>red</td><td>don't walk</td><td>1</td></tr>
+  </table>
+  </div>
+  <p style="font-size:.9rem;color:var(--sub);margin-top:.6em"><code>timer_load</code> pulses for one cycle on entry to a timed phase, kicking off the shared down-counter; the FSM never counts anything itself.</p>
+  </div></div>
+
+  <div class="step"><div class="num">4</div><div>
+  <h3>Minimize</h3>
+  <p>Check every pair: RED_WALK and RED_CLEAR both show car=red, but ped differs (walk vs. don't-walk) — distinct. GREEN and RED_CLEAR both show ped=don't-walk, but car differs (green vs. red) — distinct. No two rows match on every column, so four states is already minimal — there was no fat to trim here, unlike a diagram someone draws by hand under time pressure and forgets to check.</p>
+  </div></div>
+
+  <div class="step"><div class="num">5</div><div>
+  <h3>Why Moore</h3>
+  <p>Run it against the decision guide: the car and pedestrian lights are physical signals that must never glitch, they don't need to react within the same cycle as any input, and a technician reading a waveform should be able to tell the light color from the state alone. Every criterion points the same way. There's also no candidate for a same-cycle output here — nothing downstream is waiting on a same-cycle response to <code>ped_req</code> — so there's no reason to reach for Mealy or a registered-Mealy signal anywhere in this machine.</p>
+  </div></div>
+
+  <div class="step"><div class="num">6</div><div>
+  <h3>Encoding and RTL</h3>
+  <p>Four states, one clock domain, nothing crossing to another domain — plain binary (2 bits) is the ordinary choice for an ASIC target; one-hot only if this were going into an FPGA with flops to spare and decode speed mattered more than area.</p>
+  </div></div>
+</div>
+
+<figure>
+<svg viewBox="0 0 620 260" role="img" aria-label="Moore state diagram for the traffic light: four states GREEN, YELLOW, RED_WALK and RED_CLEAR in a cycle, each with a self-loop for staying in place and a forward edge to the next state, with the final RED_CLEAR to GREEN edge drawn as a long arc back to the start.">
+  <defs>
+    <marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+
+  <circle cx="80" cy="140" r="34" fill="none" stroke="currentColor" stroke-width="2"/>
+  <text x="80" y="145" text-anchor="middle" font-size="13">GREEN</text>
+  <circle cx="240" cy="140" r="34" fill="none" stroke="currentColor" stroke-width="2"/>
+  <text x="240" y="145" text-anchor="middle" font-size="12">YELLOW</text>
+  <circle cx="400" cy="140" r="34" fill="none" stroke="currentColor" stroke-width="2"/>
+  <text x="400" y="145" text-anchor="middle" font-size="11">RED_WALK</text>
+  <circle cx="560" cy="140" r="34" fill="none" stroke="currentColor" stroke-width="2"/>
+  <text x="560" y="145" text-anchor="middle" font-size="10">RED_CLEAR</text>
+
+  <line x1="20" y1="140" x2="46" y2="140" stroke="currentColor" stroke-width="2" marker-end="url(#a4)"/>
+
+  <!-- forward edges -->
+  <line x1="114" y1="140" x2="206" y2="140" stroke="currentColor" stroke-width="2" marker-end="url(#a4)"/>
+  <text x="160" y="128" text-anchor="middle" font-size="11">ped_req</text>
+  <line x1="274" y1="140" x2="366" y2="140" stroke="currentColor" stroke-width="2" marker-end="url(#a4)"/>
+  <text x="320" y="128" text-anchor="middle" font-size="11">timer_done</text>
+  <line x1="434" y1="140" x2="526" y2="140" stroke="currentColor" stroke-width="2" marker-end="url(#a4)"/>
+  <text x="480" y="128" text-anchor="middle" font-size="11">timer_done</text>
+
+  <!-- self loops -->
+  <path d="M58,118 C38,90 58,68 82,88" fill="none" stroke="currentColor" stroke-width="2" marker-end="url(#a4)"/>
+  <text x="46" y="72" text-anchor="middle" font-size="10">¬ped_req</text>
+  <path d="M218,118 C198,90 218,68 242,88" fill="none" stroke="currentColor" stroke-width="2" marker-end="url(#a4)"/>
+  <text x="212" y="72" text-anchor="middle" font-size="10">¬timer_done</text>
+  <path d="M378,118 C358,90 378,68 402,88" fill="none" stroke="currentColor" stroke-width="2" marker-end="url(#a4)"/>
+  <text x="372" y="72" text-anchor="middle" font-size="10">¬timer_done</text>
+  <path d="M538,118 C518,90 538,68 562,88" fill="none" stroke="currentColor" stroke-width="2" marker-end="url(#a4)"/>
+  <text x="532" y="72" text-anchor="middle" font-size="10">¬timer_done</text>
+
+  <!-- wraparound -->
+  <path d="M550,170 C550,230 90,230 90,170" fill="none" stroke="currentColor" stroke-width="2" marker-end="url(#a4)"/>
+  <text x="320" y="248" text-anchor="middle" font-size="11">timer_done</text>
+</svg>
+<figcaption>Every edge here is a transition condition only — outputs aren't drawn on Moore edges because they don't depend on them; they're read off the state table above instead.</figcaption>
+</figure>
+
+<pre class="code">localparam GREEN=2'd0, YELLOW=2'd1, RED_WALK=2'd2, RED_CLEAR=2'd3;
+
+// state register
+always @(posedge clk or posedge rst)
+  if (rst) state &lt;= GREEN;
+  else     state &lt;= next_state;
+
+// next-state logic
+always @(*) begin
+  next_state = state;
+  case (state)
+    GREEN:     next_state = ped_req    ? YELLOW    : GREEN;
+    YELLOW:    next_state = timer_done ? RED_WALK  : YELLOW;
+    RED_WALK:  next_state = timer_done ? RED_CLEAR : RED_WALK;
+    RED_CLEAR: next_state = timer_done ? GREEN     : RED_CLEAR;
+    default:   next_state = GREEN;          // recover from an unreachable state
+  endcase
+end
+
+// output logic -- reads state only (Moore)
+always @(*) begin
+  car_light  = RED;
+  ped_light  = DONT_WALK;
+  timer_load = 1'b0;
+  case (state)
+    GREEN:     car_light = GREEN_L;
+    YELLOW:    begin car_light = YELLOW_L;               timer_load = (next_state==RED_WALK);  end
+    RED_WALK:  begin car_light = RED; ped_light = WALK;   timer_load = (next_state==RED_CLEAR); end
+    RED_CLEAR: begin car_light = RED;                     timer_load = (next_state==GREEN);     end
+  endcase
+end</pre>
+
+<h2 id="example-mealy">Worked example — Mealy: overlapping sequence detector for 1101</h2>
+<p>This is the harder cousin of the two-state detector from the top of the page: a non-trivial pattern with a self-overlapping tail, which is exactly the case that trips people up if they try to build the table without a method.</p>
+
+<div class="steps">
+  <div class="step"><div class="num">1</div><div>
+  <h3>Spec</h3>
+  <p>On a single-bit serial input, assert <code>Y</code> for exactly the cycle in which the input stream's last four bits equal <code>1101</code>, overlaps allowed (so <code>...11101...</code> must still fire on its own <code>1101</code>).</p>
+  </div></div>
+
+  <div class="step"><div class="num">2</div><div>
+  <h3>Find the states — track "longest matched prefix," not "bits seen"</h3>
+  <p>The fact worth remembering after any prefix of the input is: <em>what is the longest suffix of everything seen so far that is also a prefix of the target string <code>1101</code>?</em> Call that length <code>i</code>; the state is <code>S</code><i>i</i>. This is the same idea behind a string-search automaton (KMP's failure function) and it's what correctly handles overlap: matching fails, you don't necessarily fall all the way back to "nothing matched" — you fall back to however much of a fresh match the tail of what you just saw already gives you for free. Work it out bit by bit from each state:</p>
+  <p style="font-size:.92rem"><b>S3</b> has matched <code>110</code>. On a <code>1</code> the full string <code>1101</code> is complete — fire <code>Y</code> — but the machine must land somewhere for the <em>next</em> bit. Drop the matched <code>1101</code> and ask: what's the longest suffix of it that's still a prefix of <code>1101</code>? Suffixes are <code>101</code>, <code>01</code>, <code>1</code> — only <code>1</code> matches (it equals the length-1 prefix). So the fold-back lands in <b>S1</b>, not S0. That single fold-back edge is the entire "complicated" part of this problem.</p>
+  </div></div>
+
+  <div class="step"><div class="num">3</div><div>
+  <h3>State table — every cell filled</h3>
+  <div class="tablewrap">
+  <table>
+  <tr><th>state (matched so far)</th><th>input=0</th><th>input=1</th></tr>
+  <tr><td>S0 ( — )</td><td>S0 / 0</td><td>S1 / 0</td></tr>
+  <tr><td>S1 (1)</td><td>S0 / 0</td><td>S2 / 0</td></tr>
+  <tr><td>S2 (11)</td><td>S3 / 0</td><td>S2 / 0</td></tr>
+  <tr><td>S3 (110)</td><td>S0 / 0</td><td><b>S1 / 1</b></td></tr>
+  </table>
+  </div>
+  <p style="font-size:.9rem;color:var(--sub);margin-top:.6em">Read S2's own row the same way: on another <code>1</code> the candidate is <code>111</code>, whose longest prefix-matching suffix is <code>11</code> — S2 again, which matches intuition (a run of three or more 1s is still just "waiting on 01").</p>
+  </div></div>
+
+  <div class="step"><div class="num">4</div><div>
+  <h3>Minimize</h3>
+  <p>No two rows share both a next-state pattern and an output pattern, and there's a general lower bound here too: an exact-match detector for an <i>n</i>-bit target needs at least <i>n</i> states, because it must be able to distinguish having matched every prefix length from 0 to <i>n</i>−1. Four is the minimum for a four-bit pattern — this table can't be shrunk further.</p>
+  </div></div>
+
+  <div class="step"><div class="num">5</div><div>
+  <h3>Why Mealy</h3>
+  <p>There's no requirement here that forces Moore — no clock-domain crossing, nothing else on the bus reading this signal as a stable level. Mealy wins by default: fewer states would be needed if this had to grow (each new target-string bit just extends the table by one row, no fold-back state-count penalty), and the output fires the instant the fourth bit lands rather than a cycle later. If this <code>Y</code> were, instead, driving an interrupt to another clock domain, that would be the one thing that flips the answer to registered-Mealy — same table, same states, just land <code>Y</code> in a flop before it leaves the block.</p>
+  </div></div>
+
+  <div class="step"><div class="num">6</div><div>
+  <h3>Encoding and RTL</h3>
+  <p>Four states, single domain: binary (2 bits) is the default choice, same reasoning as the traffic light.</p>
+  </div></div>
+</div>
+
+<figure>
+<svg viewBox="0 0 560 300" role="img" aria-label="Mealy state diagram for the 1101 detector: four states S0 through S3 in a row, forward edges for progressing the match, backward arcs for a mismatch, and one highlighted arc from S3 back to S1 labeled 1/1 for the fold-back on a completed match.">
+  <defs>
+    <marker id="a5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+
+  <circle cx="70" cy="150" r="32" fill="none" stroke="currentColor" stroke-width="2"/>
+  <text x="70" y="155" text-anchor="middle" font-size="14">S0</text>
+  <circle cx="210" cy="150" r="32" fill="none" stroke="currentColor" stroke-width="2"/>
+  <text x="210" y="155" text-anchor="middle" font-size="14">S1</text>
+  <circle cx="350" cy="150" r="32" fill="none" stroke="currentColor" stroke-width="2"/>
+  <text x="350" y="155" text-anchor="middle" font-size="14">S2</text>
+  <circle cx="490" cy="150" r="32" fill="none" stroke="currentColor" stroke-width="2"/>
+  <text x="490" y="155" text-anchor="middle" font-size="14">S3</text>
+
+  <line x1="10" y1="150" x2="38" y2="150" stroke="currentColor" stroke-width="2" marker-end="url(#a5)"/>
+
+  <!-- forward progression -->
+  <line x1="102" y1="150" x2="178" y2="150" stroke="currentColor" stroke-width="2" marker-end="url(#a5)"/>
+  <text x="140" y="140" text-anchor="middle" font-size="11">1 / 0</text>
+  <line x1="242" y1="150" x2="318" y2="150" stroke="currentColor" stroke-width="2" marker-end="url(#a5)"/>
+  <text x="280" y="140" text-anchor="middle" font-size="11">1 / 0</text>
+  <line x1="382" y1="150" x2="458" y2="150" stroke="currentColor" stroke-width="2" marker-end="url(#a5)"/>
+  <text x="420" y="140" text-anchor="middle" font-size="11">0 / 0</text>
+
+  <!-- S2 self loop -->
+  <path d="M328,128 C288,100 308,78 352,98" fill="none" stroke="currentColor" stroke-width="2" marker-end="url(#a5)"/>
+  <text x="330" y="80" text-anchor="middle" font-size="11">1 / 0</text>
+
+  <!-- mismatch back to S0 -->
+  <path d="M198,178 C198,225 82,225 82,178" fill="none" stroke="currentColor" stroke-width="2" marker-end="url(#a5)"/>
+  <text x="140" y="242" text-anchor="middle" font-size="11">0 / 0</text>
+  <path d="M478,180 C478,262 70,262 70,182" fill="none" stroke="currentColor" stroke-width="2" marker-end="url(#a5)"/>
+  <text x="275" y="278" text-anchor="middle" font-size="11">0 / 0</text>
+
+  <!-- the fold-back: S3 -> S1 on match -->
+  <path d="M478,120 C478,30 220,30 220,120" fill="none" stroke="var(--accent)" stroke-width="2.5" marker-end="url(#a5)"/>
+  <text x="349" y="45" text-anchor="middle" font-size="12" fill="var(--accent)">1 / 1</text>
+</svg>
+<figcaption>The highlighted edge is the entire trick: on the bit that completes the match, S3 doesn't reset to S0 — it folds back to S1, because the last bit of <code>1101</code> is itself the start of a new potential match.</figcaption>
+</figure>
+
+<pre class="code">localparam S0=2'd0, S1=2'd1, S2=2'd2, S3=2'd3;
+
+// state register
+always @(posedge clk or posedge rst)
+  if (rst) state &lt;= S0;
+  else     state &lt;= next_state;
+
+// next-state logic
+always @(*) begin
+  next_state = state;
+  case (state)
+    S0: next_state = in ? S1 : S0;
+    S1: next_state = in ? S2 : S0;
+    S2: next_state = in ? S2 : S3;   // note: 0 advances S2->S3 here
+    S3: next_state = in ? S1 : S0;   // the fold-back on match
+    default: next_state = S0;
+  endcase
+end
+
+// output logic -- reads state AND in (Mealy)
+always @(*)
+  Y = (state == S3) &amp;&amp; in;</pre>
+
+<h2 id="example-mixed">Worked example — Mixed: request/ready peripheral handshake</h2>
+<p>This one earns the "mixed" label honestly: three outputs, three different disciplines, each chosen for a specific reason rather than out of habit.</p>
+
+<div class="steps">
+  <div class="step"><div class="num">1</div><div>
+  <h3>Spec</h3>
+  <p>A small peripheral controller: <b>IDLE</b>, <b>BUSY</b>, <b>DONE</b>. A requester asserts <code>req</code>; if the peripheral is in IDLE it must assert <code>ready</code> in that same cycle (a same-cycle ready/valid handshake — the requester samples <code>ready</code> on the very edge it drove <code>req</code>, so a cycle of dead time is not acceptable). The peripheral then processes for a variable number of cycles, signaled by an external <code>busy_done</code>, then spends one cycle in DONE before returning to IDLE. When the operation completes, an external interrupt controller in a different part of the chip must also be told — but that path must never glitch.</p>
+  </div></div>
+
+  <div class="step"><div class="num">2</div><div>
+  <h3>Find the states</h3>
+  <p>Three modes, nothing more: IDLE (waiting), BUSY (working — duration owned by an external counter, not by extra states), DONE (a one-cycle acknowledgment before returning to IDLE).</p>
+  </div></div>
+
+  <div class="step"><div class="num">3</div><div>
+  <h3>State table, with each output's discipline marked</h3>
+  <div class="tablewrap">
+  <table>
+  <tr><th>state</th><th>condition</th><th>next</th>
+      <th>ready <span class="tag mealy" style="font-size:.7rem">mealy</span></th>
+      <th>busy <span class="tag moore" style="font-size:.7rem">moore</span></th>
+      <th>done <span class="tag moore" style="font-size:.7rem">moore</span></th>
+      <th>irq <span class="tag mixed" style="font-size:.7rem">reg'd mealy</span></th></tr>
+  <tr><td>IDLE</td><td>¬req</td><td>IDLE</td><td>0</td><td>0</td><td>0</td><td>0</td></tr>
+  <tr><td>IDLE</td><td>req</td><td>BUSY</td><td><b>1</b></td><td>0</td><td>0</td><td>0</td></tr>
+  <tr><td>BUSY</td><td>¬busy_done</td><td>BUSY</td><td>0</td><td>1</td><td>0</td><td>0</td></tr>
+  <tr><td>BUSY</td><td>busy_done</td><td>DONE</td><td>0</td><td>1</td><td>0</td><td><i>0 this cycle, 1 next</i></td></tr>
+  <tr><td>DONE</td><td>(always)</td><td>IDLE</td><td>0</td><td>0</td><td>1</td><td><i>1 (arrives here)</i></td></tr>
+  </table>
+  </div>
+  </div></div>
+
+  <div class="step"><div class="num">4</div><div>
+  <h3>Minimize</h3>
+  <p>All three rows differ in outputs and conditions — nothing to merge. Three is minimal.</p>
+  </div></div>
+
+  <div class="step"><div class="num">5</div><div>
+  <h3>Why each output got the discipline it did</h3>
+  <p><code>ready</code> is <b>Mealy</b>: the spec explicitly forbids a dead cycle, so it has to be a same-cycle function of state and <code>req</code> — there's no other way to meet that requirement. <code>busy</code> and <code>done</code> are <b>Moore</b>: nothing needs them same-cycle, and every other block in the chip reading them benefits from a clean, state-only, glitch-free signal. <code>irq</code> is <b>registered Mealy</b>: it's computed from the same same-cycle condition as the BUSY→DONE transition (so it's logically a Mealy output), but because it leaves this clock's local fanout to reach an interrupt controller elsewhere, it gets a flop before the boundary — Mealy's state count, Moore's safety, for the one signal that needs both.</p>
+  </div></div>
+
+  <div class="step"><div class="num">6</div><div>
+  <h3>Encoding and RTL</h3>
+  <p>Three states, single domain: binary (2 bits, one code unused and defaulted back to IDLE for safety).</p>
+  </div></div>
+</div>
+
+<figure>
+<svg viewBox="0 0 600 260" role="img" aria-label="State diagram for the peripheral controller: IDLE, BUSY and DONE in a row, with a self-loop on IDLE and BUSY, a forward edge IDLE to BUSY labeled req over ready, a forward edge BUSY to DONE labeled busy_done, and DONE always returning to IDLE via a long arc.">
+  <defs>
+    <marker id="a6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+
+  <circle cx="100" cy="120" r="34" fill="none" stroke="currentColor" stroke-width="2"/>
+  <text x="100" y="125" text-anchor="middle" font-size="14">IDLE</text>
+  <circle cx="300" cy="120" r="34" fill="none" stroke="currentColor" stroke-width="2"/>
+  <text x="300" y="125" text-anchor="middle" font-size="14">BUSY</text>
+  <circle cx="500" cy="120" r="34" fill="none" stroke="currentColor" stroke-width="2"/>
+  <text x="500" y="125" text-anchor="middle" font-size="14">DONE</text>
+
+  <line x1="40" y1="120" x2="66" y2="120" stroke="currentColor" stroke-width="2" marker-end="url(#a6)"/>
+
+  <line x1="134" y1="120" x2="266" y2="120" stroke="var(--accent)" stroke-width="2.5" marker-end="url(#a6)"/>
+  <text x="200" y="108" text-anchor="middle" font-size="12" fill="var(--accent)">req / ready</text>
+
+  <line x1="334" y1="120" x2="466" y2="120" stroke="currentColor" stroke-width="2" marker-end="url(#a6)"/>
+  <text x="400" y="108" text-anchor="middle" font-size="12">busy_done</text>
+
+  <path d="M78,98 C58,70 78,48 102,68" fill="none" stroke="currentColor" stroke-width="2" marker-end="url(#a6)"/>
+  <text x="66" y="52" text-anchor="middle" font-size="10">¬req</text>
+
+  <path d="M278,98 C258,70 278,48 302,68" fill="none" stroke="currentColor" stroke-width="2" marker-end="url(#a6)"/>
+  <text x="266" y="52" text-anchor="middle" font-size="10">¬busy_done</text>
+
+  <path d="M490,150 C490,210 110,210 110,150" fill="none" stroke="currentColor" stroke-width="2" marker-end="url(#a6)"/>
+  <text x="300" y="228" text-anchor="middle" font-size="11">always</text>
+</svg>
+<figcaption>Only the one edge that carries a same-cycle output (<code>req / ready</code>, highlighted) is labeled Mealy-style. <code>irq</code> doesn't appear on this diagram at all — it's a delayed effect of the busy_done edge, not something that happens on the edge itself; the timing diagram below is where it shows up.</figcaption>
+</figure>
+
+<div class="timing-wrap">
+<svg viewBox="0 0 700 300" width="700" role="img" aria-label="Timing diagram across eight cycles: req pulses high in cycle 2 and ready responds the same cycle; busy stays high across the processing cycles; busy_done pulses in cycle 5; done and irq both go high in cycle 6, one cycle later, for different structural reasons.">
+  <g stroke="var(--grid)" stroke-width="1">
+    <line x1="110" y1="10" x2="110" y2="290"/>
+    <line x1="180" y1="10" x2="180" y2="290"/>
+    <line x1="250" y1="10" x2="250" y2="290"/>
+    <line x1="320" y1="10" x2="320" y2="290"/>
+    <line x1="390" y1="10" x2="390" y2="290"/>
+    <line x1="460" y1="10" x2="460" y2="290"/>
+    <line x1="530" y1="10" x2="530" y2="290"/>
+    <line x1="600" y1="10" x2="600" y2="290"/>
+    <line x1="670" y1="10" x2="670" y2="290"/>
+  </g>
+
+  <text x="8" y="24" font-size="12" fill="var(--sub)">clk</text>
+  <text x="8" y="74" font-size="12" fill="var(--sub)">req</text>
+  <text x="8" y="114" font-size="12" fill="var(--sub)">busy_done</text>
+  <text x="8" y="149" font-size="12">ready</text>
+  <text x="8" y="189" font-size="12">busy</text>
+  <text x="8" y="229" font-size="12">done</text>
+  <text x="8" y="269" font-size="12">irq</text>
+
+  <g stroke="currentColor" stroke-width="1.5">
+    <line x1="110" y1="15" x2="110" y2="25"/><line x1="180" y1="15" x2="180" y2="25"/>
+    <line x1="250" y1="15" x2="250" y2="25"/><line x1="320" y1="15" x2="320" y2="25"/>
+    <line x1="390" y1="15" x2="390" y2="25"/><line x1="460" y1="15" x2="460" y2="25"/>
+    <line x1="530" y1="15" x2="530" y2="25"/><line x1="600" y1="15" x2="600" y2="25"/>
+    <line x1="670" y1="15" x2="670" y2="25"/>
+  </g>
+
+  <!-- req: 0 1 0 0 0 0 0 0 -->
+  <text x="145" y="74" text-anchor="middle" font-size="12">0</text>
+  <text x="215" y="74" text-anchor="middle" font-size="12" fill="var(--accent)">1</text>
+  <text x="285" y="74" text-anchor="middle" font-size="12">0</text>
+  <text x="355" y="74" text-anchor="middle" font-size="12">0</text>
+  <text x="425" y="74" text-anchor="middle" font-size="12">0</text>
+  <text x="495" y="74" text-anchor="middle" font-size="12">0</text>
+  <text x="565" y="74" text-anchor="middle" font-size="12">0</text>
+  <text x="635" y="74" text-anchor="middle" font-size="12">0</text>
+
+  <!-- busy_done: 0 0 0 0 1 0 0 0 -->
+  <text x="145" y="114" text-anchor="middle" font-size="12">0</text>
+  <text x="215" y="114" text-anchor="middle" font-size="12">0</text>
+  <text x="285" y="114" text-anchor="middle" font-size="12">0</text>
+  <text x="355" y="114" text-anchor="middle" font-size="12">0</text>
+  <text x="425" y="114" text-anchor="middle" font-size="12" fill="var(--accent)">1</text>
+  <text x="495" y="114" text-anchor="middle" font-size="12">0</text>
+  <text x="565" y="114" text-anchor="middle" font-size="12">0</text>
+  <text x="635" y="114" text-anchor="middle" font-size="12">0</text>
+
+  <!-- ready: high cyc2 only, Mealy = accent -->
+  <rect x="180" y="138" width="70" height="14" fill="var(--accent)" opacity="0.85"/>
+  <rect x="110" y="138" width="560" height="14" fill="none" stroke="currentColor" stroke-width="1"/>
+
+  <!-- busy: high cyc3,4,5, Moore = accent2 -->
+  <rect x="250" y="178" width="210" height="14" fill="var(--accent2)" opacity="0.85"/>
+  <rect x="110" y="178" width="560" height="14" fill="none" stroke="currentColor" stroke-width="1"/>
+
+  <!-- done: high cyc6, Moore = accent2 -->
+  <rect x="460" y="218" width="70" height="14" fill="var(--accent2)" opacity="0.85"/>
+  <rect x="110" y="218" width="560" height="14" fill="none" stroke="currentColor" stroke-width="1"/>
+
+  <!-- irq: high cyc6, registered = accent2 -->
+  <rect x="460" y="258" width="70" height="14" fill="var(--accent2)" opacity="0.85"/>
+  <rect x="110" y="258" width="560" height="14" fill="none" stroke="currentColor" stroke-width="1"/>
+</svg>
+</div>
+<p style="font-size:.9rem;color:var(--sub)"><code>ready</code> (orange) answers <code>req</code> in the very same cycle — cycle 2. <code>busy</code> (green) simply tracks the state register. <code>done</code> and <code>irq</code> (both green) land in the same cycle, 6, but for different reasons: <code>done</code> because the state register became DONE on that edge; <code>irq</code> because its flop captured the previous cycle's combinational condition. They agree here by coincidence of a one-cycle DONE phase — not because they share a mechanism.</p>
+
+<pre class="code">localparam IDLE=2'd0, BUSY=2'd1, DONE=2'd2;
+
+// state register
+always @(posedge clk or posedge rst)
+  if (rst) state &lt;= IDLE;
+  else     state &lt;= next_state;
+
+// next-state logic
+always @(*) begin
+  next_state = state;
+  case (state)
+    IDLE: next_state = req       ? BUSY : IDLE;
+    BUSY: next_state = busy_done ? DONE : BUSY;
+    DONE: next_state = IDLE;
+    default: next_state = IDLE;
+  endcase
+end
+
+// Mealy -- same-cycle handshake, reads state AND req
+assign ready = (state == IDLE) &amp;&amp; req;
+
+// Moore -- state-only status, safe to fan out anywhere
+assign busy = (state == BUSY);
+assign done = (state == DONE);
+
+// Registered Mealy -- Mealy condition, flopped before it leaves the block
+wire irq_comb = (state == BUSY) &amp;&amp; busy_done;
+always @(posedge clk or posedge rst)
+  if (rst) irq &lt;= 1'b0;
+  else     irq &lt;= irq_comb;</pre>
+
+<h2 id="example-async">Worked example — handling a genuinely asynchronous input</h2>
+<p>Every example so far assumed the input was already clean and synchronous. This one is about the part that happens <em>before</em> an FSM is even allowed to see the signal — and it's where real button, switch, and cross-domain designs actually go wrong.</p>
+
+<div class="steps">
+  <div class="step"><div class="num">1</div><div>
+  <h3>Spec</h3>
+  <p><code>btn_raw</code> comes from a physical pushbutton: no relationship to this block's clock, and it chatters (bounces between 0 and 1) for several clock cycles after every physical press or release before settling. Produce <code>press_pulse</code>, exactly one clock cycle high per physical press, immune to both metastability and bounce. Drive a 2-state <code>led</code> toggle from it.</p>
+  </div></div>
+
+  <div class="step"><div class="num">2</div><div>
+  <h3>Find the states — except most of this problem isn't states at all</h3>
+  <p>The instinct is to reach for an FSM immediately. Resist it: three of the four stages here are not control flow, they're signal conditioning, and modeling them as FSM states is the single most common over-engineering mistake in this whole area.</p>
+  <p><b>Stage 1 — metastability:</b> sampling an async signal with one flop can leave that flop in an illegal in-between voltage for an unbounded time. The fix is a chain of at least two plain D flip-flops, back to back, with no logic between them — not a state, just flops whose only job is giving any metastable event time to resolve before anything downstream reads it.</p>
+  <p><b>Stage 2 — bounce:</b> synchronizing doesn't remove chatter, it only cleans up the chatter that was already there. The fix is a stability check: accept a new level only once the synchronized signal has agreed with itself for some number of consecutive cycles. The wrong way to build this is a chain of states <code>WAIT_1, WAIT_2, … WAIT_N</code> — that's the counter-vs-state mistake from the blueprint, showing up in its most common real form. The right way is one counter plus a comparator.</p>
+  <p><b>Stage 3 — level vs. pulse:</b> the debounced signal is a level — it stays high the whole time the button is held. Toggling on a level re-triggers every cycle the button stays down. The fix is an edge detector: compare the debounced value to what it was one cycle ago; a 0→1 transition is the one-cycle pulse. Forgetting this stage is the most common bug in button-driven designs, full stop.</p>
+  <p><b>Stage 4 — now there's an FSM:</b> two states, <code>OFF</code>/<code>ON</code>, toggling on <code>press_pulse</code>. This is the only genuinely new piece of state in the whole pipeline.</p>
+  </div></div>
+
+  <div class="step"><div class="num">3</div><div>
+  <h3>State table — for the one real FSM in the pipeline</h3>
+  <div class="tablewrap">
+  <table>
+  <tr><th>state</th><th>press_pulse=0</th><th>press_pulse=1</th><th>led</th></tr>
+  <tr><td>OFF</td><td>OFF</td><td>ON</td><td>0</td></tr>
+  <tr><td>ON</td><td>ON</td><td>OFF</td><td>1</td></tr>
+  </table>
+  </div>
+  </div></div>
+
+  <div class="step"><div class="num">4</div><div>
+  <h3>Minimize</h3>
+  <p>Two states, and the whole point of the machine is remembering which one <code>led</code> is in — can't be fewer than two.</p>
+  </div></div>
+
+  <div class="step"><div class="num">5</div><div>
+  <h3>Why Moore</h3>
+  <p><code>led</code> is a physical, persistent indicator with nothing downstream needing a same-cycle reaction to <code>press_pulse</code> — there's no criterion in the decision guide that points toward Mealy here. The interesting design decisions in this problem were already spent upstream, in the synchronizer and debounce stages, not in the toggle itself.</p>
+  </div></div>
+
+  <div class="step"><div class="num">6</div><div>
+  <h3>Encoding and RTL</h3>
+  <p>One bit, two states — encoding doesn't really apply at this size.</p>
+  </div></div>
+</div>
+
+<figure>
+<svg viewBox="0 0 900 230" role="img" aria-label="Pipeline block diagram: btn_raw, asynchronous and bouncy, enters a two flip-flop synchronizer producing btn_sync; btn_sync enters a debounce counter and comparator producing btn_deb; btn_deb enters an edge detector producing press_pulse; press_pulse drives a two-state toggle FSM producing led.">
+  <defs>
+    <marker id="a7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+
+  <line x1="15" y1="95" x2="88" y2="95" stroke="currentColor" stroke-width="2" marker-end="url(#a7)"/>
+  <text x="15" y="78" font-size="12">btn_raw</text>
+  <text x="15" y="118" font-size="10" fill="var(--sub)">async, bouncy</text>
+
+  <rect x="90" y="60" width="150" height="70" rx="6" fill="none" stroke="var(--accent2)" stroke-width="2"/>
+  <text x="165" y="90" text-anchor="middle" font-size="12">2-FF SYNC</text>
+  <text x="165" y="150" text-anchor="middle" font-size="10" fill="var(--sub)">resolves metastability</text>
+
+  <line x1="240" y1="95" x2="298" y2="95" stroke="currentColor" stroke-width="2" marker-end="url(#a7)"/>
+  <text x="245" y="78" font-size="11">btn_sync</text>
+
+  <rect x="300" y="60" width="160" height="70" rx="6" fill="none" stroke="var(--accent2)" stroke-width="2"/>
+  <text x="380" y="90" text-anchor="middle" font-size="12">DEBOUNCE CTR</text>
+  <text x="380" y="150" text-anchor="middle" font-size="10" fill="var(--sub)">filters bounce</text>
+
+  <line x1="460" y1="95" x2="518" y2="95" stroke="currentColor" stroke-width="2" marker-end="url(#a7)"/>
+  <text x="463" y="78" font-size="11">btn_deb (level)</text>
+
+  <rect x="520" y="60" width="150" height="70" rx="6" fill="none" stroke="var(--accent2)" stroke-width="2"/>
+  <text x="595" y="90" text-anchor="middle" font-size="12">EDGE DETECT</text>
+  <text x="595" y="150" text-anchor="middle" font-size="10" fill="var(--sub)">level to 1-cycle pulse</text>
+
+  <line x1="670" y1="95" x2="728" y2="95" stroke="var(--accent)" stroke-width="2.5" marker-end="url(#a7)"/>
+  <text x="672" y="78" font-size="11" fill="var(--accent)">press_pulse</text>
+
+  <rect x="730" y="60" width="120" height="70" rx="6" fill="none" stroke="currentColor" stroke-width="2"/>
+  <text x="790" y="90" text-anchor="middle" font-size="12">TOGGLE FSM</text>
+  <text x="790" y="150" text-anchor="middle" font-size="10" fill="var(--sub)">Moore, OFF/ON</text>
+
+  <line x1="850" y1="95" x2="895" y2="95" stroke="currentColor" stroke-width="2" marker-end="url(#a7)"/>
+  <text x="855" y="78" font-size="11">led</text>
+</svg>
+<figcaption>Three of these four boxes aren't an FSM at all — they're the signal-conditioning pipeline every truly asynchronous input needs before an FSM is allowed to see it. Only the last box is control flow.</figcaption>
+</figure>
+
+<div class="timing-wrap">
+<svg viewBox="0 0 760 260" width="760" role="img" aria-label="Timing diagram over eleven cycles showing btn_raw bouncing between 0 and 1, btn_sync repeating the same bounce two cycles later (synchronizing does not remove bounce), btn_deb only accepting the high level once btn_sync has agreed with itself for two consecutive cycles, press_pulse firing for exactly one cycle at that acceptance, and led toggling the following cycle.">
+  <g stroke="var(--grid)" stroke-width="1">
+    <line x1="100" y1="10" x2="100" y2="250"/><line x1="155" y1="10" x2="155" y2="250"/>
+    <line x1="210" y1="10" x2="210" y2="250"/><line x1="265" y1="10" x2="265" y2="250"/>
+    <line x1="320" y1="10" x2="320" y2="250"/><line x1="375" y1="10" x2="375" y2="250"/>
+    <line x1="430" y1="10" x2="430" y2="250"/><line x1="485" y1="10" x2="485" y2="250"/>
+    <line x1="540" y1="10" x2="540" y2="250"/><line x1="595" y1="10" x2="595" y2="250"/>
+    <line x1="650" y1="10" x2="650" y2="250"/><line x1="705" y1="10" x2="705" y2="250"/>
+  </g>
+
+  <text x="8" y="24" font-size="12" fill="var(--sub)">clk</text>
+  <text x="8" y="68" font-size="12">btn_raw</text>
+  <text x="8" y="108" font-size="12">btn_sync</text>
+  <text x="8" y="143" font-size="12">btn_deb</text>
+  <text x="8" y="183" font-size="12">press_pulse</text>
+  <text x="8" y="223" font-size="12">led</text>
+
+  <g stroke="currentColor" stroke-width="1.5">
+    <line x1="100" y1="15" x2="100" y2="25"/><line x1="155" y1="15" x2="155" y2="25"/>
+    <line x1="210" y1="15" x2="210" y2="25"/><line x1="265" y1="15" x2="265" y2="25"/>
+    <line x1="320" y1="15" x2="320" y2="25"/><line x1="375" y1="15" x2="375" y2="25"/>
+    <line x1="430" y1="15" x2="430" y2="25"/><line x1="485" y1="15" x2="485" y2="25"/>
+    <line x1="540" y1="15" x2="540" y2="25"/><line x1="595" y1="15" x2="595" y2="25"/>
+    <line x1="650" y1="15" x2="650" y2="25"/><line x1="705" y1="15" x2="705" y2="25"/>
+  </g>
+
+  <!-- btn_raw: 0 0 1 0 1 0 1 1 1 1 1 -->
+  <text x="128" y="68" text-anchor="middle" font-size="12">0</text>
+  <text x="183" y="68" text-anchor="middle" font-size="12">0</text>
+  <text x="238" y="68" text-anchor="middle" font-size="12" fill="var(--accent)">1</text>
+  <text x="293" y="68" text-anchor="middle" font-size="12">0</text>
+  <text x="348" y="68" text-anchor="middle" font-size="12" fill="var(--accent)">1</text>
+  <text x="403" y="68" text-anchor="middle" font-size="12">0</text>
+  <text x="458" y="68" text-anchor="middle" font-size="12" fill="var(--accent)">1</text>
+  <text x="513" y="68" text-anchor="middle" font-size="12" fill="var(--accent)">1</text>
+  <text x="568" y="68" text-anchor="middle" font-size="12" fill="var(--accent)">1</text>
+  <text x="623" y="68" text-anchor="middle" font-size="12" fill="var(--accent)">1</text>
+  <text x="678" y="68" text-anchor="middle" font-size="12" fill="var(--accent)">1</text>
+
+  <!-- btn_sync: 0 0 0 0 1 0 1 0 1 1 1 (raw delayed by 2) -->
+  <text x="128" y="108" text-anchor="middle" font-size="12">0</text>
+  <text x="183" y="108" text-anchor="middle" font-size="12">0</text>
+  <text x="238" y="108" text-anchor="middle" font-size="12">0</text>
+  <text x="293" y="108" text-anchor="middle" font-size="12">0</text>
+  <text x="348" y="108" text-anchor="middle" font-size="12" fill="var(--accent)">1</text>
+  <text x="403" y="108" text-anchor="middle" font-size="12">0</text>
+  <text x="458" y="108" text-anchor="middle" font-size="12" fill="var(--accent)">1</text>
+  <text x="513" y="108" text-anchor="middle" font-size="12">0</text>
+  <text x="568" y="108" text-anchor="middle" font-size="12" fill="var(--accent)">1</text>
+  <text x="623" y="108" text-anchor="middle" font-size="12" fill="var(--accent)">1</text>
+  <text x="678" y="108" text-anchor="middle" font-size="12" fill="var(--accent)">1</text>
+
+  <!-- btn_deb: high only cells 10,11 -->
+  <rect x="595" y="136" width="110" height="14" fill="var(--accent2)" opacity="0.85"/>
+  <rect x="100" y="136" width="605" height="14" fill="none" stroke="currentColor" stroke-width="1"/>
+
+  <!-- press_pulse: high only cell 10 -->
+  <rect x="595" y="176" width="55" height="14" fill="var(--accent)" opacity="0.85"/>
+  <rect x="100" y="176" width="605" height="14" fill="none" stroke="currentColor" stroke-width="1"/>
+
+  <!-- led: high only cell 11 -->
+  <rect x="650" y="216" width="55" height="14" fill="var(--accent2)" opacity="0.85"/>
+  <rect x="100" y="216" width="605" height="14" fill="none" stroke="currentColor" stroke-width="1"/>
+</svg>
+</div>
+<p style="font-size:.9rem;color:var(--sub)">Watch <code>btn_sync</code> carefully: it bounces in exactly the same pattern as <code>btn_raw</code>, just shifted two cycles — the synchronizer's only job was metastability, and it did that job, nothing more. <code>btn_deb</code> doesn't accept the high level until <code>btn_sync</code> has agreed with itself for two cycles running (cycles 10 and 11 both read 1). <code>press_pulse</code> fires for exactly one cycle, right at that acceptance — not at every bounce. <code>led</code> toggles the cycle after, because it's a registered Moore output.</p>
+
+<pre class="code">// Stage 1: 2-FF synchronizer -- no logic between the flops
+reg btn_meta, btn_sync;
+always @(posedge clk or posedge rst)
+  if (rst) {btn_sync, btn_meta} &lt;= 2'b00;
+  else     {btn_sync, btn_meta} &lt;= {btn_meta, btn_raw};
+
+// Stage 2: debounce -- a counter, not a chain of states
+localparam STABLE_CYCLES = 2;
+reg [1:0] stable_cnt;
+reg btn_deb, btn_sync_q;
+always @(posedge clk or posedge rst)
+  if (rst) begin
+    stable_cnt &lt;= 0; btn_deb &lt;= 0; btn_sync_q &lt;= 0;
+  end else begin
+    btn_sync_q &lt;= btn_sync;
+    if (btn_sync == btn_sync_q)
+      stable_cnt &lt;= (stable_cnt == STABLE_CYCLES) ? stable_cnt : stable_cnt + 1'b1;
+    else
+      stable_cnt &lt;= 0;
+    if (stable_cnt == STABLE_CYCLES) btn_deb &lt;= btn_sync;
+  end
+
+// Stage 3: edge detect -- level to pulse
+reg btn_deb_q;
+always @(posedge clk or posedge rst)
+  if (rst) btn_deb_q &lt;= 0;
+  else     btn_deb_q &lt;= btn_deb;
+wire press_pulse = btn_deb &amp; ~btn_deb_q;
+
+// Stage 4: the actual FSM -- two states, Moore
+always @(posedge clk or posedge rst)
+  if (rst) led_state &lt;= OFF;
+  else     led_state &lt;= press_pulse ? ~led_state : led_state;
+wire led = led_state;</pre>
+
+<h2 id="example-arbiter">Worked example — round-robin bus arbiter</h2>
+<p>Two requesters, one resource, a fairness requirement, and a correctness requirement that forces the Mealy decision rather than just making it faster.</p>
+
+<div class="steps">
+  <div class="step"><div class="num">1</div><div>
+  <h3>Spec</h3>
+  <p>Two requesters drive <code>req0</code>, <code>req1</code>. Exactly one of <code>gnt0</code>, <code>gnt1</code> may be high in a given cycle, and only when that requester actually asked that same cycle. If both ask in the same cycle, alternate who wins across successive contested cycles so neither starves (round-robin). A request is a single-cycle assertion — a requester may drop its request the very cycle it would have been granted, and must not be serviced a cycle late, because by then it may have stopped asking.</p>
+  </div></div>
+
+  <div class="step"><div class="num">2</div><div>
+  <h3>Find the states — and notice what they're <em>not</em> tracking</h3>
+  <p>The only fact that must survive from one cycle to the next is <em>which requester currently has priority</em>: <b>PRIORITY0</b> or <b>PRIORITY1</b>. That's it — two states. Notice this state is not "who is requesting" (that's an input, read fresh every cycle) and not "who was granted last" in a literal sense either — it's specifically a rotating priority pointer, and it only has two legal values, so it fits cleanly as FSM state even though it feels more like a register than a "mode."</p>
+  </div></div>
+
+  <div class="step"><div class="num">3</div><div>
+  <h3>State table — all four input combinations, per state</h3>
+  <p>With two requesters there are four input combinations per state; small enough to enumerate directly and confirm the priority logic is actually complete:</p>
+  <div class="tablewrap">
+  <table>
+  <tr><th>state</th><th>req1,req0</th><th>gnt1,gnt0</th><th>next state</th></tr>
+  <tr><td>PRIORITY0</td><td>0,0</td><td>0,0</td><td>PRIORITY0</td></tr>
+  <tr><td>PRIORITY0</td><td>0,1</td><td>0,1</td><td>PRIORITY1</td></tr>
+  <tr><td>PRIORITY0</td><td>1,0</td><td>1,0</td><td>PRIORITY0</td></tr>
+  <tr><td>PRIORITY0</td><td>1,1</td><td>0,1</td><td>PRIORITY1</td></tr>
+  <tr><td>PRIORITY1</td><td>0,0</td><td>0,0</td><td>PRIORITY1</td></tr>
+  <tr><td>PRIORITY1</td><td>0,1</td><td>0,1</td><td>PRIORITY1</td></tr>
+  <tr><td>PRIORITY1</td><td>1,0</td><td>1,0</td><td>PRIORITY0</td></tr>
+  <tr><td>PRIORITY1</td><td>1,1</td><td>1,0</td><td>PRIORITY0</td></tr>
+  </table>
+  </div>
+  <p style="font-size:.9rem;color:var(--sub);margin-top:.6em">The rotation rule is deliberately narrow: priority only hands off when the <em>currently prioritized</em> requester is the one serviced (rows where req for the priority owner is 1). If the non-priority requester is serviced because the priority one didn't ask, the pointer holds — it still owes that requester its turn. Look closely and the next-state column depends only on the priority owner's own request line, not on the other one at all: <code>next = req0 ? PRIORITY1 : PRIORITY0</code> from PRIORITY0, and the mirror from PRIORITY1. The grant output needs both request lines; the next-state logic doesn't need to. That asymmetry is easy to miss if you build next-state and output logic as one combined block instead of two separate ones.</p>
+  </div></div>
+
+  <div class="step"><div class="num">4</div><div>
+  <h3>Minimize</h3>
+  <p>PRIORITY0 and PRIORITY1 break the tie oppositely on the <code>1,1</code> row — that's the entire reason they're different states, and it's a real difference, so two is minimal. You cannot arbitrate fairly between two requesters while remembering nothing.</p>
+  </div></div>
+
+  <div class="step"><div class="num">5</div><div>
+  <h3>Why Mealy — and why it's not optional here</h3>
+  <p>This is the sharpest version of the Mealy argument on this whole page: it's not about latency, it's about correctness. The spec says a requester may drop <code>req</code> the very cycle it would be granted and must not be served a cycle late. A registered (Moore or registered-Mealy) grant computed from last cycle's request is structurally a cycle behind — it would grant a requester that may have already stopped asking, and miss one that only asked this cycle. Mealy's same-cycle response is the only way to meet the spec as written. If a later revision of this interface required requesters to hold <code>req</code> for two cycles minimum (common on real buses, to give the arbiter room), that would reopen the question — and registered-Mealy grant becomes attractive again, the same trade as the handshake example above, just with the requester-side contract changed to make room for it.</p>
+  </div></div>
+
+  <div class="step"><div class="num">6</div><div>
+  <h3>Encoding and RTL</h3>
+  <p>One bit, two states — and worth noting for scale: with N requesters, the "who has priority" state is normally kept as a small rotating pointer register rather than 2<sup>N</sup> enumerated priority-states, same counter-vs-state instinct as everywhere else on this page.</p>
+  </div></div>
+</div>
+
+<figure>
+<svg viewBox="0 0 420 230" role="img" aria-label="State diagram with two states, PRIORITY0 and PRIORITY1. PRIORITY0 has a self-loop on req0 being low and a forward edge to PRIORITY1 on req0 being high; PRIORITY1 mirrors this on req1.">
+  <defs>
+    <marker id="a8" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+
+  <circle cx="110" cy="120" r="36" fill="none" stroke="currentColor" stroke-width="2"/>
+  <text x="110" y="117" text-anchor="middle" font-size="12">PRIORITY0</text>
+  <text x="110" y="132" text-anchor="middle" font-size="9" fill="var(--sub)">req0 owns priority</text>
+
+  <circle cx="310" cy="120" r="36" fill="none" stroke="currentColor" stroke-width="2"/>
+  <text x="310" y="117" text-anchor="middle" font-size="12">PRIORITY1</text>
+  <text x="310" y="132" text-anchor="middle" font-size="9" fill="var(--sub)">req1 owns priority</text>
+
+  <line x1="15" y1="120" x2="72" y2="120" stroke="currentColor" stroke-width="2" marker-end="url(#a8)"/>
+
+  <path d="M98,88 C80,55 100,25 128,55" fill="none" stroke="currentColor" stroke-width="2" marker-end="url(#a8)"/>
+  <text x="80" y="38" text-anchor="middle" font-size="11">¬req0</text>
+
+  <path d="M298,88 C280,55 300,25 328,55" fill="none" stroke="currentColor" stroke-width="2" marker-end="url(#a8)"/>
+  <text x="280" y="38" text-anchor="middle" font-size="11">¬req1</text>
+
+  <path d="M146,100 C190,75 230,75 274,100" fill="none" stroke="var(--accent)" stroke-width="2.5" marker-end="url(#a8)"/>
+  <text x="210" y="68" text-anchor="middle" font-size="12" fill="var(--accent)">req0 (served)</text>
+
+  <path d="M274,140 C230,165 190,165 146,140" fill="none" stroke="var(--accent)" stroke-width="2.5" marker-end="url(#a8)"/>
+  <text x="210" y="185" text-anchor="middle" font-size="12" fill="var(--accent)">req1 (served)</text>
+</svg>
+<figcaption>Only the priority owner's own request decides whether the pointer rotates — the other requester's line matters for <code>gnt</code>, not for this transition, which is why it never appears on this diagram.</figcaption>
+</figure>
+
+<div class="timing-wrap">
+<svg viewBox="0 0 460 190" width="460" role="img" aria-label="Four-cycle timing diagram showing round-robin fairness: both requesters ask in cycles 1 and 2, with gnt0 winning cycle 1 and gnt1 winning cycle 2 as priority alternates; cycle 3 only req0 asks and wins without rotating priority since req1 never asked; cycle 4 only req1 asks and wins.">
+  <g stroke="var(--grid)" stroke-width="1">
+    <line x1="120" y1="10" x2="120" y2="180"/><line x1="210" y1="10" x2="210" y2="180"/>
+    <line x1="300" y1="10" x2="300" y2="180"/><line x1="390" y1="10" x2="390" y2="180"/>
+  </g>
+  <text x="8" y="24" font-size="12" fill="var(--sub)">clk</text>
+  <text x="8" y="58" font-size="12">req0,req1</text>
+  <text x="8" y="98" font-size="12">gnt0</text>
+  <text x="8" y="128" font-size="12">gnt1</text>
+  <text x="8" y="163" font-size="12">pstate</text>
+
+  <g stroke="currentColor" stroke-width="1.5">
+    <line x1="120" y1="15" x2="120" y2="25"/><line x1="210" y1="15" x2="210" y2="25"/>
+    <line x1="300" y1="15" x2="300" y2="25"/><line x1="390" y1="15" x2="390" y2="25"/>
+  </g>
+
+  <text x="165" y="58" text-anchor="middle" font-size="12">1,1</text>
+  <text x="255" y="58" text-anchor="middle" font-size="12">1,1</text>
+  <text x="345" y="58" text-anchor="middle" font-size="12">0,1</text>
+  <text x="430" y="58" text-anchor="middle" font-size="12">1,0</text>
+
+  <rect x="120" y="85" width="90" height="14" fill="var(--accent)" opacity="0.85"/>
+  <rect x="300" y="85" width="90" height="14" fill="var(--accent)" opacity="0.85"/>
+  <rect x="120" y="85" width="360" height="14" fill="none" stroke="currentColor" stroke-width="1"/>
+
+  <rect x="210" y="115" width="90" height="14" fill="var(--accent2)" opacity="0.85"/>
+  <rect x="390" y="115" width="90" height="14" fill="var(--accent2)" opacity="0.85"/>
+  <rect x="120" y="115" width="360" height="14" fill="none" stroke="currentColor" stroke-width="1"/>
+
+  <text x="165" y="150" text-anchor="middle" font-size="11">P0</text>
+  <text x="255" y="150" text-anchor="middle" font-size="11">P1</text>
+  <text x="345" y="150" text-anchor="middle" font-size="11">P0</text>
+  <text x="430" y="150" text-anchor="middle" font-size="11">P1</text>
+</svg>
+</div>
+<p style="font-size:.9rem;color:var(--sub)">Cycles 1–2: both ask every cycle, and the grant genuinely alternates — fairness doing its job. Cycle 3: state entering the cycle is PRIORITY1 (from cycle 2's rotation), but only <code>req0</code> asks. PRIORITY1's own rule says the pointer only leaves PRIORITY1 once <code>req1</code> is actually served, so <code>req0</code> is granted without rotating priority away — <code>req1</code> is still owed its turn. Cycle 4 is where that turn comes due: only <code>req1</code> asks, it wins, and only now does priority rotate to PRIORITY0.</p>
+
+<pre class="code">localparam P0 = 1'b0, P1 = 1'b1;
+
+// state register
+always @(posedge clk or posedge rst)
+  if (rst) pstate &lt;= P0;
+  else     pstate &lt;= next_pstate;
+
+// next-state logic -- depends only on the priority owner's own request
+always @(*) begin
+  case (pstate)
+    P0: next_pstate = req0 ? P1 : P0;
+    P1: next_pstate = req1 ? P0 : P1;
+    default: next_pstate = P0;
+  endcase
+end
+
+// Mealy grant -- reads pstate AND both request lines, same cycle
+always @(*) begin
+  gnt0 = 1'b0;
+  gnt1 = 1'b0;
+  case (pstate)
+    P0: if (req0)      gnt0 = 1'b1;
+        else if (req1) gnt1 = 1'b1;
+    P1: if (req1)      gnt1 = 1'b1;
+        else if (req0) gnt0 = 1'b1;
+  endcase
+end</pre>
+
+<p style="margin-top:2em;color:var(--sub);font-size:.9rem">Five worked examples now span every edge case this page has raised: Moore for clean physical outputs, Mealy where same-cycle response is a correctness requirement rather than a nicety, mixed disciplines in one machine, a truly asynchronous input conditioned before any FSM sees it, and priority arbitration replacing brute enumeration.</p>
+
+<p style="margin-top:1.2em"><a href="exercises.html"><strong>Ready to practice? Go to the exercises →</strong></a></p>
+
+</main>
+
+<footer class="site-footer">
+  <a href="../index.html">&larr; All topics</a> &middot; <a href="https://github.com/bubismark/logic-desgin-interview-prep">source on GitHub</a>
+</footer>
+
+</body>
+</html>

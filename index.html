@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Logic Design Interview Prep</title>
+<meta name="description" content="Self-study notes and practice problems for RTL / digital logic design interviews.">
+<link rel="stylesheet" href="assets/style.css">
+<style>
+  :root{ --bg:#faf8f5; --ink:#20211f; --sub:#5b5d58; --accent:#b5502f; }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#1b1c19; --ink:#ece9e2; --sub:#a8a89f; --accent:#e08a63; color-scheme:dark; }
+  }
+  body{ margin:0; background:var(--bg); color:var(--ink); font-family:"Source Sans 3", Arial, sans-serif; }
+  main{ max-width:1000px; margin:0 auto; padding:40px 20px 20px; }
+  h1{ font-family:"Fraunces", Georgia, serif; font-size:2.1rem; margin-bottom:.2em; }
+  .lede{ color:var(--sub); max-width:60ch; margin-bottom:2.2em; line-height:1.55; }
+</style>
+</head>
+<body>
+
+<nav class="site-nav"><span class="brand">Logic Design Interview Prep</span></nav>
+
+<main>
+  <h1>Logic design interview prep</h1>
+  <p class="lede">A working set of notes for RTL / digital design interviews: one page per topic explaining how to actually think through a problem, plus a practice set of typical-to-hard questions with full worked answers. Built incrementally &mdash; state machines is the first complete section.</p>
+
+  <div class="hub-grid">
+
+    <a class="hub-card" href="state-machines/index.html">
+      <h3>State machines <span class="badge ready">Ready</span></h3>
+      <p>Moore vs. Mealy vs. mixed, a build blueprint, encoding trade-offs, and five fully worked examples spanning traffic lights to async-input handling to arbitration.</p>
+      <div class="links">
+        <a href="state-machines/index.html">Summary &rarr;</a>
+        <a href="state-machines/exercises.html">Practice &rarr;</a>
+      </div>
+    </a>
+
+    <a class="hub-card" href="combinational-logic/index.html">
+      <h3>Combinational logic &amp; timing <span class="badge soon">Skeleton</span></h3>
+      <p>Boolean minimization, mux/decoder tricks, setup/hold and timing closure fundamentals.</p>
+      <div class="links">
+        <a href="combinational-logic/index.html">Summary &rarr;</a>
+        <a href="combinational-logic/exercises.html">Practice &rarr;</a>
+      </div>
+    </a>
+
+    <a class="hub-card" href="cdc-synchronizers/index.html">
+      <h3>CDC &amp; synchronizers <span class="badge soon">Skeleton</span></h3>
+      <p>Single-bit and multi-bit clock domain crossing, 2-flop synchronizers, gray-coded pointers, metastability.</p>
+      <div class="links">
+        <a href="cdc-synchronizers/index.html">Summary &rarr;</a>
+        <a href="cdc-synchronizers/exercises.html">Practice &rarr;</a>
+      </div>
+    </a>
+
+    <a class="hub-card" href="pipelining-hazards/index.html">
+      <h3>Pipelining &amp; hazards <span class="badge soon">Skeleton</span></h3>
+      <p>Pipeline basics, data/control/structural hazards, forwarding and stalling.</p>
+      <div class="links">
+        <a href="pipelining-hazards/index.html">Summary &rarr;</a>
+        <a href="pipelining-hazards/exercises.html">Practice &rarr;</a>
+      </div>
+    </a>
+
+    <a class="hub-card" href="memory-fifo/index.html">
+      <h3>Memory &amp; FIFO design <span class="badge soon">Skeleton</span></h3>
+      <p>Sync/async FIFOs, full/empty logic, arbitration, basic cache concepts.</p>
+      <div class="links">
+        <a href="memory-fifo/index.html">Summary &rarr;</a>
+        <a href="memory-fifo/exercises.html">Practice &rarr;</a>
+      </div>
+    </a>
+
+  </div>
+</main>
+
+<footer class="site-footer">Personal interview-prep notes &middot; <a href="https://github.com/bubismark/logic-desgin-interview-prep">source on GitHub</a></footer>
+
+</body>
+</html>
