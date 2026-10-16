@@ -3,44 +3,370 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CDC & Synchronizers — Logic Design Interview Prep</title>
-<meta name="description" content="Clock domain crossing for single bits and buses, 2-flop synchronizers, gray-coded pointers, metastability.">
+<title>CDC &amp; Synchronizers &mdash; Logic Design Interview Prep</title>
+<meta name="description" content="Clock domain crossing from the gate level up: why a single flip-flop isn't enough, metastability and the MTBF formula, 2-flop and 3-flop synchronizers, the narrow-pulse problem, why multi-bit buses need Gray coding, handshake CDC, and the async FIFO that ties it all together.">
 <link rel="stylesheet" href="../assets/style.css">
 <style>
-  :root{ --bg:#faf8f5; --ink:#20211f; --sub:#5b5d58; }
-  @media (prefers-color-scheme: dark){
-    :root{ --bg:#1b1c19; --ink:#ece9e2; --sub:#a8a89f; color-scheme:dark; }
+  :root{
+    --bg:#faf8f5; --surface:#ffffff; --ink:#20211f; --sub:#5b5d58;
+    --line:#c9c4ba; --grid:#e7e2d8;
+    --accent:#b5502f;
+    --accent2:#2f6b5e;
+    --code-bg:#f0ede6; --code-ink:#2a2b28;
   }
-  body{ margin:0; background:var(--bg); color:var(--ink); font-family:"Source Sans 3", Arial, sans-serif; line-height:1.55; }
-  main{ max-width:720px; margin:0 auto; padding:40px 20px 60px; }
-  h1{ font-family:"Fraunces", Georgia, serif; font-size:1.9rem; margin-bottom:.3em; }
-  p{ max-width:65ch; color:var(--sub); }
-  ul{ max-width:65ch; color:var(--sub); padding-left:1.2em; }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#1b1c19; --surface:#232420; --ink:#ece9e2; --sub:#a8a89f;
+      --line:#4a4b45; --grid:#33342f;
+      --accent:#e08a63; --accent2:#6fbfa8;
+      --code-bg:#2a2b26; --code-ink:#e5e2da;
+      color-scheme:dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#1b1c19; --surface:#232420; --ink:#ece9e2; --sub:#a8a89f;
+    --line:#4a4b45; --grid:#33342f;
+    --accent:#e08a63; --accent2:#6fbfa8;
+    --code-bg:#2a2b26; --code-ink:#e5e2da;
+    color-scheme:dark;
+  }
+  *{box-sizing:border-box}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:"Source Sans 3", Arial, sans-serif;
+    padding-inline:16px; padding-block:32px;
+    max-width:980px; margin-inline:auto;
+    line-height:1.55;
+  }
+  h1,h2,h3{font-family:"Fraunces","Georgia",serif; font-weight:600; text-wrap:balance}
+  h1{font-size:1.9rem; margin-bottom:.2em}
+  .kicker{color:var(--sub); font-size:.95rem; margin-bottom:2em}
+  h2{font-size:1.35rem; margin-top:2.6em; border-top:1px solid var(--line); padding-top:1em}
+  h3{font-size:1.08rem; margin:1.6em 0 .3em}
+  p{max-width:72ch}
+  code, pre{font-family:"IBM Plex Mono","SF Mono",monospace}
+  code{background:var(--code-bg); color:var(--code-ink); padding:.1em .35em; border-radius:4px; font-size:.9em}
+
+  .toc{font-size:.85rem; color:var(--sub); margin-bottom:2em; display:flex; flex-wrap:wrap; gap:.3em .6em}
+  .toc a{color:var(--sub); text-decoration:underline; text-underline-offset:2px}
+  .toc a:hover{color:var(--ink)}
+  .toc span.sep{opacity:.5}
+
+  .steps{display:grid; gap:14px; margin-top:1em}
+  .step{display:grid; grid-template-columns:2.4em 1fr; gap:14px; min-width:0}
+  .step .num{font-family:"Fraunces",serif; font-size:1.3rem; color:var(--sub); line-height:1; padding-top:.1em}
+  .step p{margin:0; max-width:64ch}
+  .step h3{margin:0 0 .2em}
+
+  .card{background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:18px; min-width:0}
+  .cols{display:grid; grid-template-columns:1fr 1fr; gap:18px; align-items:start; margin-top:1em}
+  @media (max-width:760px){ .cols{grid-template-columns:1fr} }
+
+  figure{margin:1.4em 0}
+  figcaption{font-size:.85rem; color:var(--sub); margin-top:.6em; max-width:72ch}
+  svg text{fill:currentColor; font-family:"IBM Plex Mono","SF Mono",monospace}
+
+  table{border-collapse:collapse; width:100%; font-size:.9rem; margin-top:.8em}
+  th,td{border:1px solid var(--line); padding:.4em .55em; text-align:center}
+  th{background:var(--code-bg); font-weight:600}
+  .tablewrap{overflow-x:auto}
+
+  pre.code{background:var(--code-bg); color:var(--code-ink); padding:14px 16px; border-radius:8px; overflow-x:auto; font-size:.85rem; line-height:1.5}
+
+  .callout{border-left:3px solid var(--accent); padding:.2em 1em; margin:1.4em 0; color:var(--sub); font-size:.95rem; max-width:72ch}
+  .callout strong{color:var(--ink)}
+
+  .gotcha{border:1px solid var(--line); border-radius:10px; padding:16px 20px; margin:1.2em 0; background:var(--surface)}
+  .gotcha .claim{color:var(--accent); font-weight:600}
+  .gotcha .fix{color:var(--accent2); font-weight:600}
+
+  .dialogue{border:1px solid var(--line); border-radius:10px; padding:18px 22px; background:var(--surface); margin:1.2em 0}
+  .dialogue p{margin:.7em 0}
+  .dialogue .who{font-weight:700}
+  .dialogue .interviewer .who{color:var(--accent)}
+  .dialogue .you .who{color:var(--accent2)}
+
+  .cheatbox{border:1px solid var(--line); border-radius:10px; padding:20px 22px; background:var(--surface); margin-top:1em}
+  .cheatbox h3{margin-top:0}
+
+  .diagram-scroll{overflow-x:auto}
 </style>
 </head>
 <body>
 
 <nav class="site-nav">
-  <a href="../index.html">Logic Design Interview Prep</a><span class="crumb-sep">/</span><span>CDC & Synchronizers</span>
+  <a href="../index.html">Logic Design Interview Prep</a><span class="crumb-sep">/</span><span>CDC &amp; Synchronizers</span>
 </nav>
 
 <main>
-<h1>CDC & Synchronizers <span class="badge soon">Skeleton</span></h1>
-<p>Clock domain crossing for single bits and buses, 2-flop synchronizers, gray-coded pointers, metastability.</p>
 
-<div class="skeleton-note">
-<p style="margin-top:0">This section isn't written yet &mdash; it's a placeholder so the site's structure is in place. When it's built out, it'll follow the same shape as the <a href="../state-machines/index.html">state machines</a> page: a build blueprint, a decision guide for the trade-offs specific to this topic, and several fully worked examples with diagrams.</p>
-<p style="margin-bottom:0">Planned to cover, roughly:</p>
+<h1>CDC &amp; synchronizers</h1>
+<p class="kicker">Two clock domains with no fixed phase relationship to each other is the normal state of a real chip, not an edge case. Every signal that crosses that boundary is an opportunity for a flip-flop to be asked to sample a value at the exact wrong instant &mdash; and the entire subject of this page is what happens then, and the handful of well-understood techniques that make it safe anyway.</p>
+
+<nav class="toc" aria-label="Page sections">
+<a href="#why">Why crossing is dangerous</a><span class="sep">&middot;</span><a href="#metastability">Metastability &amp; MTBF</a><span class="sep">&middot;</span><a href="#two-flop">The 2-flop synchronizer</a><span class="sep">&middot;</span><a href="#three-flop">When 2 isn't enough</a><span class="sep">&middot;</span><a href="#pulse-problem">The narrow-pulse problem</a><span class="sep">&middot;</span><a href="#bus-problem">Why buses can't just use N synchronizers</a><span class="sep">&middot;</span><a href="#gray-code">Gray-coded pointers</a><span class="sep">&middot;</span><a href="#handshake">Handshake CDC</a><span class="sep">&middot;</span><a href="#async-fifo">The async FIFO</a><span class="sep">&middot;</span><a href="#gotchas">Gotchas</a><span class="sep">&middot;</span><a href="#interview-qa">Interview Q&amp;A</a><span class="sep">&middot;</span><a href="#cheatsheet">Cheat sheet</a>
+</nav>
+
+<h2 id="why">Why crossing clock domains is dangerous</h2>
+<p>A <strong>clock domain</strong> is a region of logic whose flip-flops are all ultimately driven by the same clock, switching in a coordinated, predictable way relative to each other. The moment a signal crosses from one clock domain into a flip-flop in a <em>different</em> clock domain, every timing guarantee STA normally relies on &mdash; "this signal is stable for X ns before and after the edge" &mdash; is gone. The two clocks have no fixed relationship; the crossing signal can change at any instant relative to the receiving flop's clock edge, including the one instant a flip-flop can't tolerate: inside its own setup/hold window. The Flip-Flops page on this site covers what setup and hold time actually guarantee &mdash; this page is entirely about what happens the moment that guarantee is broken, and how to make that safe anyway.</p>
+
+<h2 id="metastability">Metastability, and the MTBF formula</h2>
+<p>A flip-flop is a bistable element: it's built to settle into one of exactly two stable states. Violate setup or hold &mdash; feed it an input that changes too close to the clock edge &mdash; and for a little while, the internal node can sit <em>between</em> those two states: not a valid 0, not a valid 1, just an indeterminate voltage. This is <strong>metastability</strong>. Eventually, random tiny imbalances inside the gate push it to one side or the other &mdash; but "eventually" is the key word: the time that takes is not fixed, and in principle is unbounded.</p>
+<figure class="diagram-scroll">
+<svg viewBox="0 0 640 220" width="640" role="img" aria-label="A voltage versus time plot. A reference trace resolves quickly and cleanly to a high voltage. A second trace, representing a metastable event, lingers in a shaded indeterminate band between the valid high and low voltage thresholds for an extended, unpredictable time before eventually settling, in this case to the low voltage.">
+  <rect x="60" y="80" width="540" height="50" fill="var(--accent)" fill-opacity=".12"/>
+  <text x="610" y="110" text-anchor="end" font-size="10" fill="var(--accent)">metastable band</text>
+
+  <line x1="60" y1="40" x2="600" y2="40" stroke="var(--grid)" stroke-width="1" stroke-dasharray="3 3"/>
+  <text x="30" y="44" font-size="10" fill="var(--sub)">V_OH</text>
+  <line x1="60" y1="170" x2="600" y2="170" stroke="var(--grid)" stroke-width="1" stroke-dasharray="3 3"/>
+  <text x="30" y="174" font-size="10" fill="var(--sub)">V_OL</text>
+
+  <path d="M60,105 C 90,105 100,40 140,40 L 600,40" fill="none" stroke="var(--accent2)" stroke-width="2"/>
+  <text x="150" y="30" font-size="10" fill="var(--accent2)">normal: resolves in one clock-to-Q delay</text>
+
+  <path d="M60,105 C 120,105 150,95 220,105 C 300,118 350,90 400,120 C 460,150 480,170 600,170" fill="none" stroke="var(--accent)" stroke-width="2.5"/>
+  <text x="230" y="195" font-size="10" fill="var(--accent)">metastable: lingers, unpredictable resolve time</text>
+</svg>
+<figcaption>Both traces start from the same setup/hold-violating input. One resolves immediately, like any normal transition. The other &mdash; through no difference in the circuit, just the luck of exactly how close the violation was &mdash; wanders in the indeterminate zone before finally tipping one way. That unpredictability, not a simple "wrong value," is the actual danger.</figcaption>
+</figure>
+<p>The probability that metastability lasts longer than some resolution time <code>t_r</code> falls off <strong>exponentially</strong> with <code>t_r</code>. That gives the standard reliability figure for a synchronizer, Mean Time Between Failures:</p>
+<pre class="code">MTBF  =  e<sup>(t_r / &tau;)</sup>  /  (T0 &times; f_clk &times; f_data)</pre>
 <ul>
-<li>Why a single flip-flop is not enough: metastability and MTBF</li>
-<li>2-flop (and when you need 3-flop) synchronizers for single-bit signals</li>
-<li>Why multi-bit buses cannot just use N parallel synchronizers</li>
-<li>Gray-coded pointers for async FIFOs, and handshake-based CDC for wide data</li>
+<li><code>t_r</code> &mdash; the resolution time you give it: roughly one extra clock period per extra synchronizer stage.</li>
+<li><code>&tau;</code> (tau) &mdash; a technology-specific time constant of the flip-flop itself: how fast it tends to resolve out of the indeterminate zone. Smaller is better, and it's a cell-library property, not something you can design around in RTL.</li>
+<li><code>T0</code> &mdash; another technology constant, related to how wide the input window is that can actually trigger metastability.</li>
+<li><code>f_clk</code>, <code>f_data</code> &mdash; the sampling clock frequency and how often the asynchronous input changes. More attempts per second, more opportunities to land in the danger window.</li>
+</ul>
+<div class="callout"><strong>The one thing worth taking away from this formula:</strong> MTBF scales as <code>e<sup>t_r/&tau;</sup></code> &mdash; <em>exponentially</em> in the resolution time. Illustrative numbers: a technology with &tau;=200&nbsp;ps, given just one extra 2&nbsp;ns clock period of resolution time, improves MTBF by a factor of <code>e<sup>(2ns/0.2ns)</sup> = e<sup>10</sup> &asymp; 22,000&times;</code>. (&tau; and T0 are real, measured, library-specific numbers in an actual design &mdash; these are illustrative, not universal constants.) That's the entire mathematical justification for why adding one more flip-flop stage to a synchronizer is such an enormous reliability win for such a small cost.</div>
+
+<h2 id="two-flop">The 2-flop synchronizer</h2>
+<p>A single flip-flop sampling an asynchronous signal gives that signal exactly zero dedicated resolution time &mdash; if it goes metastable, that bad value (or an eventual-but-late resolution) feeds straight into downstream logic. The standard fix: add a <strong>second</strong> flip-flop, clocked by the same destination clock, sitting between the first flop and the rest of the logic.</p>
+<figure class="diagram-scroll">
+<svg viewBox="0 0 640 170" role="img" aria-label="An asynchronous input feeds the first flip-flop of a synchronizer, clocked by the destination domain's clock. That first flip-flop's output, which may be briefly metastable, feeds a second flip-flop on the same clock. Only the second flip-flop's output is used by the rest of the destination domain's logic.">
+  <text x="10" y="55" font-size="12">async_in</text>
+  <line x1="75" y1="50" x2="118" y2="50" stroke="currentColor" stroke-width="1.5"/>
+  <rect x="120" y="25" width="110" height="50" rx="6" fill="none" stroke="var(--accent)" stroke-width="2"/>
+  <text x="175" y="55" text-anchor="middle" fill="var(--accent)" font-size="12">FF1</text>
+  <text x="175" y="90" text-anchor="middle" font-size="10" fill="var(--accent)">may go metastable</text>
+
+  <line x1="230" y1="50" x2="298" y2="50" stroke="currentColor" stroke-width="1.5"/>
+  <text x="240" y="43" font-size="9" fill="var(--sub)">1 full clk_dst period to resolve</text>
+  <rect x="300" y="25" width="110" height="50" rx="6" fill="none" stroke="var(--accent2)" stroke-width="2"/>
+  <text x="355" y="55" text-anchor="middle" fill="var(--accent2)" font-size="12">FF2</text>
+  <text x="355" y="90" text-anchor="middle" font-size="10" fill="var(--accent2)">safe to use downstream</text>
+
+  <line x1="410" y1="50" x2="470" y2="50" stroke="var(--accent2)" stroke-width="2"/>
+  <text x="480" y="55" font-size="12">sync_out</text>
+
+  <text x="10" y="130" font-size="11" fill="var(--sub)">both clocked by clk_dst &mdash; the destination domain's own clock</text>
+</svg>
+<figcaption>If FF1 goes metastable, it has a <em>full clock period</em> to resolve before FF2 samples it &mdash; exactly the <code>t_r</code> in the MTBF formula above. Only FF2's output is ever used by the rest of the logic; FF1's output is never tapped directly.</figcaption>
+</figure>
+<pre class="code">module sync2ff (
+    input  logic clk_dst,
+    input  logic rst_n,
+    input  logic async_in,
+    output logic sync_out
+);
+    logic ff1;   // INTERVIEWER Q: why no reset-value guarantee claimed for ff1?
+                 //   -> it's explicitly allowed to be metastable for a while;
+                 //      the circuit's correctness depends on FF2, not on FF1
+                 //      ever holding a "clean" value at every instant.
+    always_ff @(posedge clk_dst) begin
+        if (!rst_n) begin
+            ff1      &lt;= 1'b0;
+            sync_out &lt;= 1'b0;
+        end else begin
+            ff1      &lt;= async_in;
+            sync_out &lt;= ff1;
+        end
+    end
+endmodule</pre>
+
+<h2 id="three-flop">When 2 isn't enough</h2>
+<p>Two stages is the common default, but the MTBF formula says exactly when it stops being sufficient: at very high clock frequencies (less resolution time per stage) or for very high-reliability requirements (automotive, aerospace, safety-critical designs), the MTBF from 2 stages can fall below what's acceptable. The fix is mechanical &mdash; add a third flip-flop, same clock, same chain &mdash; and the payoff is the same exponential jump described above, applied once more.</p>
+
+<h2 id="pulse-problem">The narrow-pulse problem</h2>
+<p>Everything above assumes the signal being synchronized is a <strong>level</strong> that stays stable for a while. A <strong>pulse</strong> is different: if it's narrower than roughly one destination clock period, it can fall entirely between two consecutive sampling edges and never get captured at all &mdash; not metastably, just completely invisible.</p>
+<figure class="diagram-scroll">
+<svg viewBox="0 0 640 190" width="640" role="img" aria-label="clk_dst ticking with rising edges spaced one period apart. A narrow async pulse occurs entirely between two consecutive rising edges, never overlapping either sampling instant, so a flip-flop clocked by clk_dst reads low at both edges and never sees the pulse at all.">
+  <text x="10" y="135" font-size="12">clk_dst</text>
+  <path d="M20,150 H70 V110 H120 V150 H170 V110 H220 V150 H270 V110 H320 V150 H370 V110 H420 V150 H470 V110 H520 V150 H570 V110 H620" fill="none" stroke="currentColor" stroke-width="2"/>
+
+  <text x="10" y="35" font-size="12">async pulse</text>
+  <path d="M20,40 H200 V10 H230 V40 H620" fill="none" stroke="var(--accent)" stroke-width="2.5"/>
+
+  <line x1="170" y1="5" x2="170" y2="165" stroke="var(--grid)" stroke-width="1" stroke-dasharray="3 3"/>
+  <text x="170" y="178" text-anchor="middle" font-size="10" fill="var(--sub)">edge: reads LOW</text>
+  <line x1="270" y1="5" x2="270" y2="165" stroke="var(--grid)" stroke-width="1" stroke-dasharray="3 3"/>
+  <text x="270" y="178" text-anchor="middle" font-size="10" fill="var(--sub)">edge: reads LOW</text>
+  <text x="215" y="60" text-anchor="middle" font-size="10" fill="var(--accent)">pulse never overlaps a sampling instant</text>
+</svg>
+<figcaption>This specific miss is a function of exact phase &mdash; a pulse this narrow isn't <em>guaranteed</em> to be missed every time, but it isn't guaranteed to be caught either, which is precisely the problem: reliable capture needs a pulse width of at least one full destination clock period, with margin.</figcaption>
+</figure>
+<p>The standard fix converts the unreliable pulse into a reliable level before it ever gets near a synchronizer: toggle a flip-flop in the <em>source</em> domain every time the pulse fires. A toggle is a level change that persists until the next pulse &mdash; exactly the kind of signal the plain 2-flop synchronizer handles safely. The destination domain then edge-detects the synchronized toggle to regenerate a clean, one-cycle pulse of its own.</p>
+<pre class="code">// Source domain: turn an unreliable pulse into a reliable level
+always_ff @(posedge clk_src) begin
+    if (!rst_n)        toggle_src &lt;= 1'b0;
+    else if (pulse_in) toggle_src &lt;= ~toggle_src;
+end
+
+// 2-flop synchronizer, into the destination domain
+logic sync1, sync2;
+always_ff @(posedge clk_dst) begin
+    if (!rst_n) begin
+        sync1 &lt;= 1'b0;
+        sync2 &lt;= 1'b0;
+    end else begin
+        sync1 &lt;= toggle_src;
+        sync2 &lt;= sync1;
+    end
+end
+
+// Destination domain: edge-detect to regenerate a clean, 1-cycle pulse
+logic sync2_prev;
+always_ff @(posedge clk_dst) begin
+    if (!rst_n) sync2_prev &lt;= 1'b0;
+    else        sync2_prev &lt;= sync2;
+end
+assign pulse_out = sync2 ^ sync2_prev;</pre>
+<p>Traced cycle by cycle (destination-domain cycles; the source pulse lands around cycle 1):</p>
+<div class="tablewrap">
+<table>
+<tr><th>cycle</th><th>pulse_in</th><th>toggle_src</th><th>sync1</th><th>sync2</th><th>sync2_prev</th><th>pulse_out</th></tr>
+<tr><td>0</td><td></td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td></tr>
+<tr><td>1</td><td><strong>1</strong></td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td></tr>
+<tr><td>2</td><td></td><td>1</td><td>0</td><td>0</td><td>0</td><td>0</td></tr>
+<tr><td>3</td><td></td><td>1</td><td>1</td><td>0</td><td>0</td><td>0</td></tr>
+<tr><td>4</td><td></td><td>1</td><td>1</td><td>1</td><td>0</td><td><strong>1</strong></td></tr>
+<tr><td>5</td><td></td><td>1</td><td>1</td><td>1</td><td>1</td><td>0</td></tr>
+</table>
+</div>
+<p>One clean, one-cycle-wide output pulse at cycle 4 &mdash; three cycles after the original event (one for the toggle to register, two for the synchronizer) &mdash; no matter how narrow the original pulse was.</p>
+
+<h2 id="bus-problem">Why multi-bit buses can't just use N independent synchronizers</h2>
+<p>Put a 2-flop synchronizer on every bit of a bus independently, and each bit is individually protected from metastability. That's not enough. Different bits can have slightly different physical delays, so when several bits of a bus change at once in the source domain, there's no guarantee the destination domain's sampling instant lands cleanly before <em>or</em> after <strong>all</strong> of them &mdash; it can land after some and before others, capturing a value that was never valid in either domain.</p>
+<div class="callout"><strong>Concrete, classic example:</strong> a counter going from binary <code>0111</code> (7) to <code>1000</code> (8) changes <em>all four bits</em> at once. If a destination flop samples mid-transition and happens to catch some bits already updated and others not yet, the captured value could be almost anything &mdash; including, say, <code>1111</code> (15) or <code>0000</code> (0), neither of which the counter ever actually held. This is exactly why counters/pointers crossing a clock domain (like a FIFO's read/write pointers) need more than "just synchronize every bit."</div>
+
+<h2 id="gray-code">Gray-coded pointers</h2>
+<p>The fix for counters and pointers: encode the value so that <strong>only one bit ever changes between consecutive values</strong>. Then a destination sample mid-transition can only ever catch the fully-old value or the fully-new value &mdash; there is no other bit to be caught halfway, so there's no invalid combination to land on.</p>
+<figure class="diagram-scroll">
+<svg viewBox="0 0 680 150" role="img" aria-label="A sequence of eight 3-bit values counting zero through seven, shown in both binary and Gray code. The binary sequence highlights the transition from three to four, where all three bits change at once. The Gray code sequence is shown changing only one bit at every single step.">
+  <text x="10" y="30" font-size="11" fill="var(--sub)">binary: 000 001 010 011 100 101 110 111</text>
+  <text x="300" y="30" font-size="10" fill="var(--accent)">&larr; all 3 bits flip here (3&rarr;4)</text>
+  <text x="10" y="90" font-size="11" fill="var(--accent2)">gray:   000 001 011 010 110 111 101 100</text>
+  <text x="10" y="115" font-size="10" fill="var(--sub)">every single step changes exactly one bit</text>
+</svg>
+</figure>
+<pre class="code">// Binary to Gray: trivial, one XOR per bit
+assign gray = binary ^ (binary >> 1);
+
+// Gray to binary: each bit depends on the (already-recovered) bit above it
+always_comb begin
+    binary[WIDTH-1] = gray[WIDTH-1];
+    for (int i = WIDTH-2; i >= 0; i--)
+        binary[i] = binary[i+1] ^ gray[i];
+end</pre>
+<p class="callout">Verified for every 3-bit value: binary 0..7 &rarr; Gray 000, 001, 011, 010, 110, 111, 101, 100 &rarr; converted back through the gray-to-binary logic above recovers 0..7 exactly, with no mismatches. This is the standard, well-known reflected binary Gray code &mdash; worth confirming by hand once rather than trusting it from memory.</p>
+
+<h2 id="handshake">Handshake CDC for arbitrary wide data</h2>
+<p>Gray coding only works for values that change by exactly one count at a time &mdash; a counter or pointer. For an arbitrary data word that can change to <em>any</em> new value at once, the standard technique is a request/acknowledge handshake instead.</p>
+<div class="steps">
+<div class="step"><div class="num">1</div><div><h3>Source drives data, then asserts req</h3><p>The data bus is set up first and held <strong>stable</strong> &mdash; it must not change again until the source sees the acknowledgment, since the destination might sample it at any point after req is recognized.</p></div></div>
+<div class="step"><div class="num">2</div><div><h3>req crosses via a 2-flop synchronizer</h3><p>Now a clean level in the destination domain's own clock.</p></div></div>
+<div class="step"><div class="num">3</div><div><h3>Destination captures data, asserts ack</h3><p>Only now, once req is safely recognized, is the data latched.</p></div></div>
+<div class="step"><div class="num">4</div><div><h3>ack crosses back via its own 2-flop synchronizer</h3><p>The source only releases/changes data once it sees the synchronized ack.</p></div></div>
+</div>
+<p class="callout">Correct and general, but slow: a full round trip costs several cycles in <em>both</em> domains, just for two synchronizer crossings. For a continuous stream of wide data, this throughput cost is exactly why the next section's approach is preferred instead.</p>
+
+<h2 id="async-fifo">Tying it together: the asynchronous FIFO</h2>
+<p>The standard high-throughput answer for streaming data between clock domains combines everything above: Gray-coded pointers (safe to cross), a 2-flop synchronizer for each pointer (in each direction), and the dual-port memory array itself from the FIFO page &mdash; each location is only ever written by one domain and read by the other, with the pointers' own synchronization being what keeps that safe.</p>
+<figure class="diagram-scroll">
+<svg viewBox="0 0 700 260" role="img" aria-label="Write domain logic with a binary write pointer, its Gray-coded version, and the dual-port memory, on the left. Read domain logic with a binary read pointer, its Gray-coded version, and the same memory, on the right. The write pointer's Gray code crosses via a synchronizer into the read domain to compute empty, and the read pointer's Gray code crosses via a synchronizer into the write domain to compute full.">
+  <rect x="20" y="20" width="220" height="100" rx="8" fill="none" stroke="var(--accent)" stroke-width="2"/>
+  <text x="130" y="45" text-anchor="middle" fill="var(--accent)" font-size="12">write domain (clk_wr)</text>
+  <text x="130" y="68" text-anchor="middle" font-size="11">wr_ptr (bin) &rarr; wr_ptr_gray</text>
+  <text x="130" y="88" text-anchor="middle" font-size="11">full = f(wr_ptr_gray, rd_gray_sync)</text>
+  <text x="130" y="108" text-anchor="middle" font-size="10" fill="var(--sub)">writes dual-port RAM</text>
+
+  <rect x="460" y="20" width="220" height="100" rx="8" fill="none" stroke="var(--accent2)" stroke-width="2"/>
+  <text x="570" y="45" text-anchor="middle" fill="var(--accent2)" font-size="12">read domain (clk_rd)</text>
+  <text x="570" y="68" text-anchor="middle" font-size="11">rd_ptr (bin) &rarr; rd_ptr_gray</text>
+  <text x="570" y="88" text-anchor="middle" font-size="11">empty = (rd_ptr_gray == wr_gray_sync)</text>
+  <text x="570" y="108" text-anchor="middle" font-size="10" fill="var(--sub)">reads dual-port RAM</text>
+
+  <rect x="280" y="20" width="140" height="45" rx="6" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <text x="350" y="38" text-anchor="middle" font-size="10">2-flop sync</text>
+  <text x="350" y="53" text-anchor="middle" font-size="9" fill="var(--sub)">(clk_rd domain)</text>
+  <line x1="240" y1="42" x2="278" y2="42" stroke="currentColor" stroke-width="1.5"/>
+  <line x1="420" y1="42" x2="458" y2="42" stroke="currentColor" stroke-width="1.5"/>
+  <text x="350" y="15" text-anchor="middle" font-size="9" fill="var(--sub)">wr_ptr_gray &rarr;</text>
+
+  <rect x="280" y="75" width="140" height="45" rx="6" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <text x="350" y="93" text-anchor="middle" font-size="10">2-flop sync</text>
+  <text x="350" y="108" text-anchor="middle" font-size="9" fill="var(--sub)">(clk_wr domain)</text>
+  <line x1="458" y1="97" x2="420" y2="97" stroke="currentColor" stroke-width="1.5"/>
+  <line x1="278" y1="97" x2="240" y2="97" stroke="currentColor" stroke-width="1.5"/>
+  <text x="350" y="68" text-anchor="middle" font-size="9" fill="var(--sub)">&larr; rd_ptr_gray</text>
+
+  <rect x="150" y="160" width="400" height="70" rx="8" fill="none" stroke="var(--sub)" stroke-width="2" stroke-dasharray="4 3"/>
+  <text x="350" y="190" text-anchor="middle" font-size="12">dual-port RAM (the actual data)</text>
+  <text x="350" y="210" text-anchor="middle" font-size="10" fill="var(--sub)">one write port (clk_wr), one read port (clk_rd)</text>
+</svg>
+<figcaption>Only the <em>pointers</em> (Gray-coded, 1 bit at a time) cross the clock boundary through synchronizers. The data itself never needs to be synchronized directly &mdash; the pointer protocol is what guarantees a reader never touches a slot the writer hasn't finished writing, and vice versa.</figcaption>
+</figure>
+<p>The one genuinely tricky piece: comparing Gray-coded pointers for <strong>full</strong> isn't a simple equality check the way <strong>empty</strong> is. Empty is just <code>rd_ptr_gray == wr_ptr_gray_sync</code> (Gray code is a one-to-one mapping, so equality in Gray means equality in the underlying count, same as the synchronous FIFO's binary-pointer case). Full needs the write domain to recognize "the read pointer, converted back to what it would mean in my own numbering, is exactly one full wrap behind me" &mdash; which works out to a specific bit-flip rule:</p>
+<pre class="code">// full, checked in the WRITE domain, AW = address width (pointers are AW+1 bits)
+assign full = (wr_ptr_gray == {~rd_ptr_gray_sync[AW:AW-1], rd_ptr_gray_sync[AW-2:0]});</pre>
+<p>Verified on a depth-4 example (AW=2, so 3-bit pointers):</p>
+<div class="tablewrap">
+<table>
+<tr><th>Scenario</th><th>wr_ptr (bin)</th><th>rd_ptr (bin)</th><th>wr_ptr_gray</th><th>rd_ptr_gray</th><th>candidate (bit-flip rule)</th><th>full?</th></tr>
+<tr><td>Empty</td><td>0</td><td>0</td><td>000</td><td>000</td><td>110</td><td>no &mdash; 000&ne;110 &#10003;</td></tr>
+<tr><td>2 of 4 slots used</td><td>2</td><td>0</td><td>011</td><td>000</td><td>110</td><td>no &mdash; 011&ne;110 &#10003;</td></tr>
+<tr><td>4 pushes, 0 pops</td><td>4</td><td>0</td><td>110</td><td>000</td><td>110</td><td><strong>yes &mdash; 110=110 &#10003;</strong></td></tr>
+<tr><td>Full at a different wrap offset</td><td>5</td><td>1</td><td>111</td><td>001</td><td>111</td><td><strong>yes &mdash; 111=111 &#10003;</strong></td></tr>
+</table>
+</div>
+
+<h2 id="gotchas">Gotchas</h2>
+<div class="gotcha"><p><span class="claim">"A setup/hold violation just gives you the old or new value, pick one."</span><br><span class="fix">It gives you an indeterminate, unpredictably-timed resolution</span> &mdash; metastability, not a clean binary choice. That unpredictable duration is the entire reason synchronizers need dedicated resolution time, not just "a flop for good luck."</p></div>
+<div class="gotcha"><p><span class="claim">"Put some combinational logic in front of the first synchronizer flop, it's just a few gates."</span><br><span class="fix">Don't</span> &mdash; the first flop of a synchronizer chain must be driven directly by the raw asynchronous signal. Combinational logic in front of it defeats the whole point: now there isn't one well-understood metastability-prone node, there's a gate network whose own glitch behavior isn't part of the analysis at all.</p></div>
+<div class="gotcha"><p><span class="claim">"Synchronize the signal once, then fan it out everywhere it's needed."</span><br><span class="fix">Only if it's genuinely one signal</span> &mdash; synchronizing two <em>related</em> signals through two independent synchronizer instances can let them resolve on different cycles, so downstream logic can briefly see an inconsistent combination (a "reconvergence" bug). Synchronize once, fan out the synchronized result &mdash; don't resynchronize the same information twice.</p></div>
+<div class="gotcha"><p><span class="claim">"STA will catch any CDC timing problem."</span><br><span class="fix">STA needs to be told not to try</span> &mdash; the path into a synchronizer's first flop is deliberately, intentionally asynchronous, and without an explicit false-path (or equivalent) constraint, static timing analysis will report an endless stream of "violations" on a path that was never meant to meet normal setup/hold in the first place.</p></div>
+<div class="gotcha"><p><span class="claim">"A reset signal doesn't need its own synchronization."</span><br><span class="fix">If it originates in a different clock domain, it does</span> &mdash; an asynchronously-asserted, asynchronously-released reset can itself violate the exact same setup/hold rules as any other cross-domain signal, with the same consequences.</p></div>
+
+<h2 id="interview-qa">Interview Q&amp;A</h2>
+<div class="dialogue">
+<p class="interviewer"><span class="who">Interviewer:</span> Why can't you just connect an async signal straight into a flip-flop in another clock domain?</p>
+<p class="you"><span class="who">You:</span> No fixed timing relationship between the two clocks means the signal can change at any instant relative to the receiving flop's edge, including inside its setup/hold window &mdash; which risks metastability: the flop's internal node can sit at an invalid voltage for an unpredictable amount of time before resolving.</p>
+<p class="interviewer"><span class="who">Interviewer:</span> How do you fix that?</p>
+<p class="you"><span class="who">You:</span> A 2-flop synchronizer &mdash; a second flop, same destination clock, sitting after the first. If the first flop goes metastable, it gets a full clock period to resolve before the second flop samples it. MTBF scales exponentially with that resolution time, so even one extra stage is a massive reliability win.</p>
+<p class="interviewer"><span class="who">Interviewer:</span> When would two stages not be enough?</p>
+<p class="you"><span class="who">You:</span> Very high destination clock frequencies, which give less resolution time per stage, or very high reliability requirements where the MTBF from two stages isn't good enough &mdash; a third stage buys another exponential jump.</p>
+<p class="interviewer"><span class="who">Interviewer:</span> Does this handle a narrow pulse the same way?</p>
+<p class="you"><span class="who">You:</span> No &mdash; a pulse narrower than about one destination clock period can fall entirely between two sampling edges and be missed completely, not metastably, just invisibly. The fix is to toggle a flip-flop in the source domain on every pulse, turning it into a stable level, synchronize that level with the normal 2-flop technique, then edge-detect it in the destination domain to regenerate a clean pulse.</p>
+<p class="interviewer"><span class="who">Interviewer:</span> What about a multi-bit bus, like a counter value?</p>
+<p class="you"><span class="who">You:</span> Independent per-bit synchronizers aren't enough &mdash; different bits can resolve on different cycles, and if several bits change at once in the source domain, a destination sample can catch a mixed, never-valid combination. For a counter or pointer, the fix is Gray coding: only one bit changes per step, so a sample mid-transition can only ever be the fully-old or fully-new value.</p>
+<p class="interviewer"><span class="who">Interviewer:</span> And for an arbitrary data word, not just a counter?</p>
+<p class="you"><span class="who">You:</span> Gray coding doesn't apply there since the value can jump to anything, not just count by one. That needs a request/acknowledge handshake: data held stable, req synchronized across, destination captures and acks, ack synchronized back before the source changes data again. Slower than Gray-coded pointers &mdash; a full round trip costs several cycles in both domains &mdash; which is exactly why an async FIFO, built from Gray-coded pointers plus dual-port memory, is the standard choice when you need to stream wide data continuously instead.</p>
+</div>
+
+<h2 id="cheatsheet">Cheat sheet</h2>
+<div class="cheatbox">
+<ul>
+<li><strong>Metastability</strong>: an indeterminate, unpredictably-timed resolution after a setup/hold violation &mdash; not just a wrong value.</li>
+<li><strong>MTBF &prop; e<sup>t_r/&tau;</sup></strong> &mdash; each added synchronizer stage buys another exponential jump in reliability.</li>
+<li><strong>2-flop synchronizer</strong>: standard default for a single-bit <em>level</em> crossing a clock domain. 3-flop when frequency or reliability needs demand it.</li>
+<li><strong>Narrow pulses</strong> can be missed entirely by a plain synchronizer &mdash; convert to a toggle in the source domain, synchronize the toggle, edge-detect it in the destination domain.</li>
+<li><strong>Multi-bit buses</strong> need more than N independent synchronizers &mdash; use Gray coding for counters/pointers (only 1 bit changes per step) or a req/ack handshake for arbitrary data.</li>
+<li><strong>Gray-to-binary</strong>: <code>binary[MSB]=gray[MSB]</code>, then <code>binary[i] = binary[i+1] ^ gray[i]</code> going down.</li>
+<li><strong>Async FIFO full (in Gray)</strong>: <code>wr_gray == {~rd_gray_sync[AW:AW-1], rd_gray_sync[AW-2:0]}</code> &mdash; not a plain equality check.</li>
+<li>Never put combinational logic in front of a synchronizer's first flop. Never resynchronize related signals independently. Always false-path the synchronizer's input in STA.</li>
 </ul>
 </div>
 
-<p style="margin-top:1.6em"><a href="exercises.html">Practice exercises for this topic (also a skeleton) &rarr;</a></p>
-<p><a href="../index.html">&larr; All topics</a></p>
 </main>
 
 <footer class="site-footer">

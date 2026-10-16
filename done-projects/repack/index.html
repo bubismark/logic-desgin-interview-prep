@@ -1,0 +1,662 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Write Repack: Merging Narrow Writes Into Wide Beats &mdash; Logic Design Interview Prep</title>
+<meta name="description" content="A block that converts a stream of narrow bus write bursts into a small number of wide, aligned writes: the accumulate-and-merge datapath, the precompute-once design trick, a real off-by-one bit-width bug, and the FSM that drives it all.">
+<link rel="stylesheet" href="../../assets/style.css">
+<style>
+  :root{
+    --bg:#faf8f5; --surface:#ffffff; --ink:#20211f; --sub:#5b5d58;
+    --line:#c9c4ba; --grid:#e7e2d8;
+    --accent:#b5502f;
+    --accent2:#2f6b5e;
+    --code-bg:#f0ede6; --code-ink:#2a2b28;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#1b1c19; --surface:#232420; --ink:#ece9e2; --sub:#a8a89f;
+      --line:#4a4b45; --grid:#33342f;
+      --accent:#e08a63; --accent2:#6fbfa8;
+      --code-bg:#2a2b26; --code-ink:#e5e2da;
+      color-scheme:dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#1b1c19; --surface:#232420; --ink:#ece9e2; --sub:#a8a89f;
+    --line:#4a4b45; --grid:#33342f;
+    --accent:#e08a63; --accent2:#6fbfa8;
+    --code-bg:#2a2b26; --code-ink:#e5e2da;
+    color-scheme:dark;
+  }
+  *{box-sizing:border-box}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:"Source Sans 3", Arial, sans-serif;
+    padding-inline:16px; padding-block:32px;
+    max-width:960px; margin-inline:auto;
+    line-height:1.55;
+  }
+  h1,h2,h3{font-family:"Fraunces","Georgia",serif; font-weight:600; text-wrap:balance}
+  h1{font-size:1.9rem; margin-bottom:.2em}
+  .kicker{color:var(--sub); font-size:.95rem; margin-bottom:2em}
+  h2{font-size:1.35rem; margin-top:2.6em; border-top:1px solid var(--line); padding-top:1em}
+  h3{font-size:1.08rem; margin:1.6em 0 .3em}
+  p{max-width:70ch}
+  code, pre{font-family:"IBM Plex Mono","SF Mono",monospace}
+  code{background:var(--code-bg); color:var(--code-ink); padding:.1em .35em; border-radius:4px; font-size:.9em}
+
+  .toc{font-size:.85rem; color:var(--sub); margin-bottom:2em; display:flex; flex-wrap:wrap; gap:.3em .6em}
+  .toc a{color:var(--sub); text-decoration:underline; text-underline-offset:2px}
+  .toc a:hover{color:var(--ink)}
+  .toc span.sep{opacity:.5}
+
+  .steps{display:grid; gap:14px; margin-top:1em}
+  .step{display:grid; grid-template-columns:2.4em 1fr; gap:14px; min-width:0}
+  .step .num{font-family:"Fraunces",serif; font-size:1.3rem; color:var(--sub); line-height:1; padding-top:.1em}
+  .step p{margin:0; max-width:64ch}
+  .step h3{margin:0 0 .2em}
+
+  .card{background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:18px; min-width:0}
+  .cols{display:grid; grid-template-columns:1fr 1fr; gap:18px; align-items:start; margin-top:1em}
+  @media (max-width:700px){ .cols{grid-template-columns:1fr} }
+
+  figure{margin:1.4em 0}
+  figcaption{font-size:.85rem; color:var(--sub); margin-top:.6em; max-width:70ch}
+  svg text{fill:currentColor; font-family:"IBM Plex Mono","SF Mono",monospace}
+
+  table{border-collapse:collapse; width:100%; font-size:.92rem; margin-top:.8em}
+  th,td{border:1px solid var(--line); padding:.4em .6em; text-align:center}
+  th{background:var(--code-bg); font-weight:600}
+  .tablewrap{overflow-x:auto}
+
+  pre.code{background:var(--code-bg); color:var(--code-ink); padding:14px 16px; border-radius:8px; overflow-x:auto; font-size:.85rem; line-height:1.5}
+
+  .callout{border-left:3px solid var(--accent); padding:.2em 1em; margin:1.4em 0; color:var(--sub); font-size:.95rem; max-width:70ch}
+  .callout strong{color:var(--ink)}
+
+  .cheatbox{border:1px solid var(--line); border-radius:10px; padding:20px 22px; background:var(--surface); margin-top:1em}
+  .cheatbox h3{margin-top:0}
+  .cheatbox ol, .cheatbox ul{margin:.4em 0 0; padding-left:1.3em}
+  .cheatbox li{margin:.45em 0}
+  .cheatbox + .cheatbox{margin-top:16px}
+
+  .diagram-scroll{overflow-x:auto}
+</style>
+</head>
+<body>
+
+<nav class="site-nav">
+  <a href="../../index.html">Logic Design Interview Prep</a><span class="crumb-sep">/</span><a href="../index.html">Done projects</a><span class="crumb-sep">/</span><span>Write Repack</span>
+</nav>
+
+<main>
+
+<h1>Write repack: merging narrow bus writes into wide aligned beats</h1>
+<p class="kicker">A block sitting between an upstream write source and a downstream engine that only wants to deal in wide, aligned writes. Upstream is allowed to send narrow bursts (a bus-width field lets it write as little as 1 byte at a time); downstream needs full-width beats. This page walks the whole design: the accumulate-and-merge datapath, the precompute-once trick that keeps a multiply off the hot path, a real off-by-one bit-width bug, the FSM, and the handshake discipline that holds it all together &mdash; with a diagram for every piece.</p>
+
+<nav class="toc" aria-label="Page sections">
+<a href="#problem">The problem</a><span class="sep">&middot;</span><a href="#overview">Block overview</a><span class="sep">&middot;</span><a href="#passthrough">Pass-through case</a><span class="sep">&middot;</span><a href="#repacking">Accumulate &amp; merge</a><span class="sep">&middot;</span><a href="#slots">Offsets &amp; slots</a><span class="sep">&middot;</span><a href="#precompute">Precompute once</a><span class="sep">&middot;</span><a href="#masking">Byte-lane masks</a><span class="sep">&middot;</span><a href="#bitwidthbug">A real bit-width bug</a><span class="sep">&middot;</span><a href="#one-accumulator">Why one accumulator</a><span class="sep">&middot;</span><a href="#fsm">The FSM</a><span class="sep">&middot;</span><a href="#handshake">Handshake discipline</a><span class="sep">&middot;</span><a href="#backtoback">Back-to-back dispatch</a><span class="sep">&middot;</span><a href="#tradeoffs">Design tradeoffs</a><span class="sep">&middot;</span><a href="#implementation">Generic implementation</a><span class="sep">&middot;</span><a href="#cheatsheet">Cheat sheet</a><span class="sep">&middot;</span><a href="#takeaways">Takeaways</a>
+</nav>
+
+<h2 id="problem">The problem</h2>
+<p>The upstream side of this block speaks an AXI-style write channel: an address phase (base address, burst length, and a <em>size</em> field encoding how many bytes wide each beat is &mdash; 1, 2, 4, 8, 16 or 32 bytes, always a power of two) followed by a data phase (one write beat per cycle, each with its own byte-strobe mask marking which bytes are actually valid). Critically, <strong>upstream is allowed to write narrower than the downstream engine wants to deal with.</strong> The downstream engine &mdash; a read-modify-write (RMW) stage that merges writes against existing memory contents &mdash; is built around one fixed, wide, aligned beat size (32 bytes, in the concrete numbers used throughout this page). Handing it four separate 8-byte writes where one 32-byte write would do means four times the downstream transactions, four times the control-channel overhead, for data that's going to the exact same aligned block anyway.</p>
+<p>So this block's whole job is: <strong>watch narrow writes go by, and turn them into the fewest possible wide, aligned writes</strong>, without ever touching the address, without reordering anything, and without adding an expensive operation onto the path that runs every single cycle.</p>
+
+<h2 id="overview">Block overview</h2>
+<figure class="diagram-scroll">
+<svg viewBox="0 0 820 220" width="820" role="img" aria-label="Block diagram: an upstream write source feeds an input address FIFO and an input data FIFO. Both feed a repack engine containing the FSM and datapath, which feeds an output address FIFO and output data FIFO, which feed a downstream read-modify-write engine. Ready signals flow backward from each FIFO to its producer.">
+  <defs>
+    <marker id="rA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+  <rect x="10" y="60" width="110" height="100" rx="8" fill="none" stroke="currentColor" stroke-width="2"/>
+  <text x="65" y="105" text-anchor="middle" font-size="12">upstream</text>
+  <text x="65" y="122" text-anchor="middle" font-size="12">write source</text>
+
+  <rect x="170" y="40"  width="110" height="55" rx="6" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <text x="225" y="63"  text-anchor="middle" font-size="11">in AW FIFO</text>
+  <text x="225" y="80"  text-anchor="middle" font-size="9" fill="var(--sub)">address phase</text>
+  <rect x="170" y="125" width="110" height="55" rx="6" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <text x="225" y="148" text-anchor="middle" font-size="11">in W FIFO</text>
+  <text x="225" y="165" text-anchor="middle" font-size="9" fill="var(--sub)">one beat/cycle</text>
+
+  <rect x="350" y="30" width="150" height="160" rx="8" fill="none" stroke="var(--accent)" stroke-width="2.5"/>
+  <text x="425" y="100" text-anchor="middle" font-size="13" fill="var(--accent)">repack engine</text>
+  <text x="425" y="118" text-anchor="middle" font-size="10" fill="var(--sub)">FSM + datapath</text>
+
+  <rect x="560" y="40"  width="110" height="55" rx="6" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <text x="615" y="63"  text-anchor="middle" font-size="11">out AW FIFO</text>
+  <rect x="560" y="125" width="110" height="55" rx="6" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <text x="615" y="148" text-anchor="middle" font-size="11">out W FIFO</text>
+
+  <rect x="710" y="60" width="100" height="100" rx="8" fill="none" stroke="currentColor" stroke-width="2"/>
+  <text x="760" y="105" text-anchor="middle" font-size="12">downstream</text>
+  <text x="760" y="122" text-anchor="middle" font-size="12">RMW engine</text>
+
+  <line x1="120" y1="80"  x2="168" y2="65"  stroke="currentColor" stroke-width="1.5" marker-end="url(#rA)"/>
+  <line x1="120" y1="140" x2="168" y2="152" stroke="currentColor" stroke-width="1.5" marker-end="url(#rA)"/>
+  <line x1="280" y1="65"  x2="348" y2="90"  stroke="currentColor" stroke-width="1.5" marker-end="url(#rA)"/>
+  <line x1="280" y1="152" x2="348" y2="130" stroke="currentColor" stroke-width="1.5" marker-end="url(#rA)"/>
+  <line x1="500" y1="90"  x2="558" y2="65"  stroke="currentColor" stroke-width="1.5" marker-end="url(#rA)"/>
+  <line x1="500" y1="130" x2="558" y2="152" stroke="currentColor" stroke-width="1.5" marker-end="url(#rA)"/>
+  <line x1="670" y1="65"  x2="708" y2="90"  stroke="currentColor" stroke-width="1.5" marker-end="url(#rA)"/>
+  <line x1="670" y1="152" x2="708" y2="130" stroke="currentColor" stroke-width="1.5" marker-end="url(#rA)"/>
+
+  <path d="M65,60 C65,20 760,20 760,58" fill="none" stroke="var(--sub)" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#rA)"/>
+  <text x="400" y="18" text-anchor="middle" font-size="10" fill="var(--sub)">ready flows backward, opposite the data</text>
+</svg>
+<figcaption>Address and data each get their own FIFO on both sides &mdash; standard practice for an AXI-style channel, since the address phase and data phase are independently flow-controlled. The engine in the middle decides, per transaction, whether to merge narrow beats or just pass wide ones straight through.</figcaption>
+</figure>
+<p>Three states drive the engine: <strong>idle</strong> (waiting for a new transaction), <strong>accumulate</strong> (merging narrow beats into wide ones), and <strong>pass-through</strong> (the write is already the right width, just forward it). Everything below unpacks one piece of this at a time.</p>
+
+<h2 id="passthrough">The easy case: pass-through</h2>
+<p>If the incoming write is already 32 bytes wide, there's nothing to repack &mdash; every input beat <em>is</em> an output beat. The engine recognizes this the moment the address phase arrives and routes the whole transaction down a bypass path: no accumulator, no byte masking, no slot tracking, just a straight copy from the input data FIFO to the output data FIFO, one beat in, one beat out. This matters as a design choice on its own: <strong>a fast path for the common/simple case</strong>, so that traffic which needs no work doesn't pay for the machinery built for traffic that does.</p>
+
+<h2 id="repacking">The core idea: accumulate and merge</h2>
+<p>For a narrow write, the fix is a single wide register &mdash; the <strong>accumulator</strong> &mdash; sized exactly to the downstream beat width (32 bytes of data, plus a 32-bit byte-strobe). Each arriving narrow beat already lands at the correct byte lanes within its 32-byte window (upstream places the data where it belongs, based on the address), so merging it in is just a bitwise OR. Once the accumulator holds everything that belongs in this output beat, push it downstream and clear the register for the next one.</p>
+
+<figure class="diagram-scroll">
+<svg viewBox="0 0 700 230" width="700" role="img" aria-label="Four 8-byte input beats, each shown as a distinct colored block, filling exactly the four 8-byte quarters of one 32-byte output frame, with no gaps and no overlap.">
+  <g font-size="11">
+    <rect x="20"  y="40" width="150" height="60" fill="none" stroke="var(--accent)" stroke-width="2"/><text x="95"  y="75" text-anchor="middle">beat 0</text><text x="95" y="30" text-anchor="middle" fill="var(--sub)" font-size="10">bytes [0:7]</text>
+    <rect x="190" y="40" width="150" height="60" fill="none" stroke="var(--accent2)" stroke-width="2"/><text x="265" y="75" text-anchor="middle">beat 1</text><text x="265" y="30" text-anchor="middle" fill="var(--sub)" font-size="10">bytes [8:15]</text>
+    <rect x="360" y="40" width="150" height="60" fill="none" stroke="var(--accent)" stroke-width="2" stroke-dasharray="4 3"/><text x="435" y="75" text-anchor="middle">beat 2</text><text x="435" y="30" text-anchor="middle" fill="var(--sub)" font-size="10">bytes [16:23]</text>
+    <rect x="530" y="40" width="150" height="60" fill="none" stroke="var(--accent2)" stroke-width="2" stroke-dasharray="4 3"/><text x="605" y="75" text-anchor="middle">beat 3</text><text x="605" y="30" text-anchor="middle" fill="var(--sub)" font-size="10">bytes [24:31]</text>
+  </g>
+  <text x="350" y="130" text-anchor="middle" font-size="12" fill="var(--sub)">OR-merged into the accumulator, one beat per cycle &darr;</text>
+  <rect x="20" y="150" width="660" height="60" fill="none" stroke="currentColor" stroke-width="2.5"/>
+  <line x1="170" y1="150" x2="170" y2="210" stroke="var(--line)" stroke-width="1.5"/>
+  <line x1="340" y1="150" x2="340" y2="210" stroke="var(--line)" stroke-width="1.5"/>
+  <line x1="510" y1="150" x2="510" y2="210" stroke="var(--line)" stroke-width="1.5"/>
+  <text x="350" y="185" text-anchor="middle" fill="var(--accent)">one complete 32-byte output beat</text>
+</svg>
+<figcaption>This is the simplest case: four 8-byte beats exactly fill one 32-byte frame with no boundary crossing. Push the accumulator out the moment beat 3 lands, and the whole transaction becomes a single downstream write.</figcaption>
+</figure>
+
+<figure class="diagram-scroll">
+<svg viewBox="0 0 720 200" width="720" role="img" aria-label="Datapath diagram: an input beat's write data and write strobe are each ANDed with a byte-lane mask, then ORed into the accumulator registers for data and strobe. On a flush signal, the accumulator contents are pushed out as one output beat and the registers are cleared.">
+  <defs>
+    <marker id="rB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+  <text x="10" y="55"  font-size="12">in wdata, wstrb</text>
+  <line x1="150" y1="50" x2="188" y2="50" stroke="currentColor" stroke-width="1.5" marker-end="url(#rB)"/>
+  <rect x="190" y="25" width="110" height="50" rx="6" fill="none" stroke="var(--accent)" stroke-width="2"/>
+  <text x="245" y="55" text-anchor="middle" font-size="12" fill="var(--accent)">AND mask[k]</text>
+
+  <text x="10" y="150" font-size="12">accumulator</text>
+  <line x1="300" y1="50" x2="338" y2="50" stroke="currentColor" stroke-width="1.5" marker-end="url(#rB)"/>
+  <rect x="340" y="25" width="110" height="50" rx="6" fill="none" stroke="var(--accent)" stroke-width="2"/>
+  <text x="395" y="55" text-anchor="middle" font-size="12" fill="var(--accent)">OR into accum</text>
+
+  <path d="M395,75 C 395,120 190,120 190,100" fill="none" stroke="var(--sub)" stroke-width="1.5" stroke-dasharray="3 3" marker-end="url(#rB)"/>
+  <text x="290" y="140" text-anchor="middle" font-size="10" fill="var(--sub)">accum register, fed back every cycle</text>
+
+  <line x1="450" y1="50" x2="488" y2="50" stroke="currentColor" stroke-width="1.5" marker-end="url(#rB)"/>
+  <rect x="490" y="25" width="110" height="50" rx="6" fill="none" stroke="currentColor" stroke-width="2"/>
+  <text x="545" y="50" text-anchor="middle" font-size="11">on flush:</text>
+  <text x="545" y="65" text-anchor="middle" font-size="11">push + clear</text>
+
+  <line x1="600" y1="50" x2="638" y2="50" stroke="currentColor" stroke-width="1.5" marker-end="url(#rB)"/>
+  <text x="645" y="55" font-size="12">out beat</text>
+
+  <text x="300" y="175" text-anchor="middle" font-size="11" fill="var(--sub)">mask[k] strips any bits this beat isn't allowed to touch &mdash; see "Byte-lane masks" below</text>
+</svg>
+<figcaption>Masking before merging matters even though upstream already places data at the right lanes: it's what guarantees bytes no input beat ever covers come out as 0 from the output strobe, rather than carrying stale leftover bits.</figcaption>
+</figure>
+
+<h2 id="slots">Byte offsets and slots</h2>
+<p>Call each 32-byte-aligned window downstream a <strong>slot</strong>. Every input beat has a cumulative byte offset from the start of the transaction (<code>offset[k] = starting alignment + k &times; bytes_per_beat</code>), and its slot is just that offset divided by 32 &mdash; which, because 32 is a power of two, is simply <code>offset &gt;&gt; 5</code>, the top bits of the offset. The moment the <em>next</em> beat's slot differs from the current one, the current slot is done and gets flushed.</p>
+
+<figure class="diagram-scroll">
+<svg viewBox="0 0 760 170" width="760" role="img" aria-label="A byte-offset number line from 0 to 64, divided into two 32-byte slots by a boundary line at byte 32. Four 16-byte input beats are drawn beneath it: beats 0 and 1 fall entirely within slot 0, beats 2 and 3 fall entirely within slot 1.">
+  <line x1="40" y1="40" x2="720" y2="40" stroke="currentColor" stroke-width="2"/>
+  <line x1="40"  y1="30" x2="40"  y2="50" stroke="currentColor" stroke-width="2"/><text x="40"  y="20" text-anchor="middle" font-size="11">0</text>
+  <line x1="380" y1="20" x2="380" y2="140" stroke="var(--accent)" stroke-width="2" stroke-dasharray="4 3"/><text x="380" y="12" text-anchor="middle" font-size="11" fill="var(--accent)">32</text>
+  <line x1="720" y1="30" x2="720" y2="50" stroke="currentColor" stroke-width="2"/><text x="720" y="20" text-anchor="middle" font-size="11">64</text>
+
+  <rect x="40"  y="60" width="170" height="50" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="125" y="90" text-anchor="middle" font-size="11">beat 0 [0:15]</text>
+  <rect x="210" y="60" width="170" height="50" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="295" y="90" text-anchor="middle" font-size="11">beat 1 [16:31]</text>
+  <rect x="380" y="60" width="170" height="50" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="465" y="90" text-anchor="middle" font-size="11">beat 2 [32:47]</text>
+  <rect x="550" y="60" width="170" height="50" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="635" y="90" text-anchor="middle" font-size="11">beat 3 [48:63]</text>
+
+  <text x="125" y="130" text-anchor="middle" font-size="12" fill="var(--sub)">slot 0</text>
+  <text x="295" y="130" text-anchor="middle" font-size="12" fill="var(--sub)">slot 0</text>
+  <text x="465" y="130" text-anchor="middle" font-size="12" fill="var(--accent)">slot 1</text>
+  <text x="635" y="130" text-anchor="middle" font-size="12" fill="var(--accent)">slot 1</text>
+  <text x="380" y="155" text-anchor="middle" font-size="11" fill="var(--accent)">boundary crossed between beat 1 and beat 2 &rarr; flush slot 0 here</text>
+</svg>
+<figcaption>Four 16-byte beats, two slots: <code>{slot0, slot0, slot1, slot1}</code>. Flush fires right after beat 1 (next beat's slot differs), and again after beat 3 (last beat of the transaction) &mdash; two output beats from four input beats.</figcaption>
+</figure>
+
+<h2 id="precompute">Design choice: precompute once, not every cycle</h2>
+<p>Here's the trap: computing a slot naively is <code>(k &times; bytes_per_beat) &gt;&gt; 5</code> &mdash; a multiply, fresh, on every single beat. That's exactly the kind of operation earlier pages on this site had to <em>pipeline</em> around when it had to run every cycle on a hot path. Here there's a cleaner fix available: <strong>bytes_per_beat and the starting alignment are both fixed for the whole transaction</strong> (every beat in one burst is the same size). So instead of multiplying per beat, compute the whole table of slot values &mdash; one entry per possible beat index, up to 4 entries for this engine &mdash; <em>once</em>, at the moment the address phase is latched, using nothing but repeated addition (<code>offset[k] = offset[k-1] + bytes_per_beat</code>, one cheap add, not a multiply). Store it in a tiny register array. From then on, the per-beat hot path is just <code>slot = table[beat_index]</code> &mdash; a lookup, not an arithmetic operation.</p>
+
+<figure class="diagram-scroll">
+<svg viewBox="0 0 760 240" width="760" role="img" aria-label="Comparison: the naive approach recomputes a multiply and shift on every one of four beat cycles. This design computes a small table once when the address phase is dispatched, so each beat cycle is only a cheap table lookup.">
+  <text x="20" y="30" font-size="12" fill="var(--sub)">naive &mdash; repeats real arithmetic every cycle</text>
+  <g font-size="11">
+    <rect x="20"  y="45" width="160" height="50" rx="5" fill="none" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="4 3"/><text x="100" y="75" text-anchor="middle" fill="var(--sub)">beat0: k&times;bpb&gt;&gt;5</text>
+    <rect x="200" y="45" width="160" height="50" rx="5" fill="none" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="4 3"/><text x="280" y="75" text-anchor="middle" fill="var(--sub)">beat1: k&times;bpb&gt;&gt;5</text>
+    <rect x="380" y="45" width="160" height="50" rx="5" fill="none" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="4 3"/><text x="460" y="75" text-anchor="middle" fill="var(--sub)">beat2: k&times;bpb&gt;&gt;5</text>
+    <rect x="560" y="45" width="160" height="50" rx="5" fill="none" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="4 3"/><text x="640" y="75" text-anchor="middle" fill="var(--sub)">beat3: k&times;bpb&gt;&gt;5</text>
+  </g>
+  <text x="20" y="130" font-size="12" fill="var(--accent)">this design &mdash; one table, built once per transaction</text>
+  <rect x="20" y="145" width="160" height="50" rx="5" fill="none" stroke="var(--accent)" stroke-width="2"/><text x="100" y="175" text-anchor="middle" fill="var(--accent)">AW dispatch:</text>
+  <text x="100" y="190" text-anchor="middle" fill="var(--accent)" font-size="10">build table (adds)</text>
+  <g font-size="11">
+    <rect x="220" y="145" width="110" height="50" rx="5" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="275" y="175" text-anchor="middle">beat0: lookup</text>
+    <rect x="350" y="145" width="110" height="50" rx="5" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="405" y="175" text-anchor="middle">beat1: lookup</text>
+    <rect x="480" y="145" width="110" height="50" rx="5" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="535" y="175" text-anchor="middle">beat2: lookup</text>
+    <rect x="610" y="145" width="110" height="50" rx="5" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="665" y="175" text-anchor="middle">beat3: lookup</text>
+  </g>
+  <text x="380" y="225" text-anchor="middle" font-size="11" fill="var(--sub)">the arithmetic happens once, off the repeating path, instead of being pipelined on it</text>
+</svg>
+<figcaption>Pipelining (the theme of the companion page on this site) is the right answer when an expensive operation genuinely has to happen every cycle. The answer here is different and often cheaper: realize the operation only needs to happen <em>once per transaction</em>, and move it off the hot loop entirely.</figcaption>
+</figure>
+
+<h2 id="masking">Byte-lane masks</h2>
+<p>Each beat's mask is a 32-bit window of consecutive 1s, starting at <code>lane_start[k] = offset[k] mod 32</code> and running for <code>bytes_per_beat</code> bits. Generating it is a simple per-bit range check: <code>mask[k][b] = (b &ge; lane_start) &amp;&amp; (b &lt; lane_end)</code>, for every byte lane <code>b</code> &mdash; a one-hot-style window decoder, computed once per beat (from the precomputed table above, not recomputed from scratch).</p>
+
+<figure class="diagram-scroll">
+<svg viewBox="0 0 680 150" width="680" role="img" aria-label="A 32-bit byte-lane mask shown as a row of cells, with lanes 8 through 15 highlighted as the active window for an 8-byte beat starting at lane 8, and all other lanes shown as zero.">
+  <g font-size="10">
+    <rect x="20"  y="40" width="160" height="40" fill="none" stroke="var(--line)" stroke-width="1.5"/><text x="100" y="64" text-anchor="middle" fill="var(--sub)">lanes 0&ndash;7: 0</text>
+    <rect x="180" y="40" width="160" height="40" fill="var(--accent)" fill-opacity=".18" stroke="var(--accent)" stroke-width="2.5"/><text x="260" y="64" text-anchor="middle" fill="var(--accent)">lanes 8&ndash;15: 1</text>
+    <rect x="340" y="40" width="160" height="40" fill="none" stroke="var(--line)" stroke-width="1.5"/><text x="420" y="64" text-anchor="middle" fill="var(--sub)">lanes 16&ndash;23: 0</text>
+    <rect x="500" y="40" width="160" height="40" fill="none" stroke="var(--line)" stroke-width="1.5"/><text x="580" y="64" text-anchor="middle" fill="var(--sub)">lanes 24&ndash;31: 0</text>
+  </g>
+  <text x="260" y="25" text-anchor="middle" font-size="11" fill="var(--accent)">lane_start=8, lane_end=16</text>
+  <text x="340" y="110" text-anchor="middle" font-size="11" fill="var(--sub)">mask = 0x0000FF00 &mdash; an 8-byte window starting at lane 8</text>
+</svg>
+<figcaption>AND this mask against the beat's write data and strobe before merging, and anything the beat shouldn't be touching is guaranteed to come out zero.</figcaption>
+</figure>
+
+<h2 id="bitwidthbug">A real bug: when "just one more bit" matters</h2>
+<p>This block actually shipped with (and later fixed) exactly the kind of bit-width bug the earlier addition rules on this site warn about. <code>lane_start</code> only ever needs to hold values 0&ndash;31, so it was declared as 5 bits. <code>lane_end = lane_start + bytes_per_beat</code> was declared the <em>same</em> width. That's fine almost always &mdash; except a 16-byte beat starting at lane 16 gives <code>lane_end = 16 + 16 = 32</code>, which does not fit in 5 bits.</p>
+
+<figure class="diagram-scroll">
+<svg viewBox="0 0 700 220" width="700" role="img" aria-label="Before the fix: a 5-bit field can represent 0 through 31. Computing 16 plus 16 equals 32 overflows the field and wraps around to 0, making the window comparison always false and zeroing the entire mask. After the fix: a 6-bit field can represent 0 through 63, so 32 is representable and the comparison works correctly.">
+  <text x="20" y="25" font-size="12" fill="var(--accent)">before the fix &mdash; lane_end declared 5 bits (0&ndash;31)</text>
+  <rect x="20" y="40" width="620" height="30" fill="none" stroke="var(--line)" stroke-width="1.5"/>
+  <text x="330" y="60" text-anchor="middle" font-size="11" fill="var(--sub)">representable range: 0 &hellip; 31</text>
+  <path d="M560,40 C 610,10 660,60 600,70" fill="none" stroke="var(--accent)" stroke-width="2"/>
+  <text x="660" y="35" font-size="11" fill="var(--accent)">16+16=32</text>
+  <text x="660" y="50" font-size="11" fill="var(--accent)">wraps to 0</text>
+  <text x="330" y="95" text-anchor="middle" font-size="11" fill="var(--accent)">mask condition "b &lt; lane_end" becomes "b &lt; 0" &mdash; always false &mdash; entire beat's data silently lost</text>
+
+  <text x="20" y="140" font-size="12" fill="var(--accent2)">after the fix &mdash; lane_end declared 6 bits (0&ndash;63)</text>
+  <rect x="20" y="155" width="620" height="30" fill="none" stroke="var(--accent2)" stroke-width="2"/>
+  <text x="330" y="175" text-anchor="middle" font-size="11" fill="var(--accent2)">representable range: 0 &hellip; 63 &mdash; 32 fits comfortably</text>
+  <text x="330" y="205" text-anchor="middle" font-size="11" fill="var(--sub)">same +1-bit-of-headroom rule as any add: the result of a &le;31 value plus a &le;16 value needs a wider field than either input alone</text>
+</svg>
+<figcaption>This is the bit-growth rule from basic addition, missed at a boundary value that's easy to never hit in a quick test: a 5-bit value plus a 4-bit-ish value can reach exactly 32, and 32 needs a 6th bit. Silent wraparound, not a crash &mdash; the kind of bug that only shows up for specific alignment/size combinations, which is exactly why it's worth checking "what's the actual maximum value here, and does my field fit it" for every intermediate signal, not just the ones that look wide.</figcaption>
+</figure>
+
+<h2 id="one-accumulator">Design choice: why one accumulator is enough</h2>
+<p>A more general design might need one accumulator <em>per slot</em>, or some scoreboard keyed by slot number, in case beats for different output slots show up interleaved. This block gets away with exactly <strong>one</strong> accumulator register pair, because of a guarantee the upstream burst type provides: <strong>beats arrive in strictly increasing address order within a transaction.</strong> Slot numbers can only stay the same or go up as beats are consumed &mdash; never backward, never skip-and-return. So by the time a beat for a new slot shows up, the previous slot has already been completed and flushed; there's never a need to hold two partially-filled slots at once.</p>
+
+<figure class="diagram-scroll">
+<svg viewBox="0 0 740 160" width="740" role="img" aria-label="A timeline of four beats showing the single accumulator filling with slot 0 data across beats 0 and 1, flushing and clearing right after beat 1, then filling fresh with slot 1 data across beats 2 and 3, flushing again after beat 3.">
+  <g font-size="11">
+    <rect x="20"  y="30" width="160" height="40" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="100" y="54" text-anchor="middle">beat0 &rarr; accum</text>
+    <rect x="200" y="30" width="160" height="40" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="280" y="54" text-anchor="middle">beat1 &rarr; accum, FLUSH</text>
+    <rect x="380" y="30" width="160" height="40" fill="none" stroke="var(--accent)" stroke-width="1.5"/><text x="460" y="54" text-anchor="middle" fill="var(--accent)">beat2 &rarr; accum (fresh)</text>
+    <rect x="560" y="30" width="160" height="40" fill="none" stroke="var(--accent)" stroke-width="1.5"/><text x="640" y="54" text-anchor="middle" fill="var(--accent)">beat3 &rarr; accum, FLUSH</text>
+  </g>
+  <text x="280" y="95" text-anchor="middle" font-size="11" fill="var(--sub)">accumulator holds slot 0 only</text>
+  <text x="640" y="95" text-anchor="middle" font-size="11" fill="var(--accent)">accumulator holds slot 1 only &mdash; cleared before beat 2 arrives</text>
+  <text x="370" y="130" text-anchor="middle" font-size="12" fill="var(--sub)">one accumulator, reused &mdash; never two slots live at once, because beat order guarantees it</text>
+</svg>
+<figcaption>This is a direct consequence of relying on a protocol guarantee (strictly increasing address order) to simplify hardware. Relax that guarantee &mdash; say, allow out-of-order beats &mdash; and you'd need multiple accumulators or a small content-addressable buffer keyed by slot, a materially more expensive design.</figcaption>
+</figure>
+
+<h2 id="fsm">The FSM</h2>
+<p>Three states, same ones introduced above, now with their transitions:</p>
+
+<figure class="diagram-scroll">
+<svg viewBox="0 0 640 260" role="img" aria-label="State diagram with three states: IDLE, ACCUM and PASS. IDLE transitions to PASS on a new wide transaction, and to ACCUM on a new narrow transaction. ACCUM self-loops while beats remain, and on the last beat either returns to IDLE or dispatches directly into ACCUM or PASS for the next transaction. PASS self-loops similarly and also supports direct dispatch to the next transaction on its last beat.">
+  <defs>
+    <marker id="rC" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+  <circle cx="110" cy="140" r="50" fill="none" stroke="currentColor" stroke-width="2"/>
+  <text x="110" y="145" text-anchor="middle" font-size="15">IDLE</text>
+
+  <circle cx="330" cy="70" r="55" fill="none" stroke="var(--accent)" stroke-width="2.5"/>
+  <text x="330" y="75" text-anchor="middle" font-size="15" fill="var(--accent)">ACCUM</text>
+
+  <circle cx="330" cy="220" r="55" fill="none" stroke="var(--accent2)" stroke-width="2.5"/>
+  <text x="330" y="225" text-anchor="middle" font-size="15" fill="var(--accent2)">PASS</text>
+
+  <line x1="10" y1="140" x2="62" y2="140" stroke="currentColor" stroke-width="2" marker-end="url(#rC)"/>
+  <text x="8" y="128" font-size="10">start</text>
+
+  <path d="M152,118 C 210,90 250,80 278,78" fill="none" stroke="var(--accent)" stroke-width="2" marker-end="url(#rC)"/>
+  <text x="210" y="90" font-size="11" fill="var(--accent)">new txn, narrow</text>
+
+  <path d="M152,162 C 210,190 250,205 278,212" fill="none" stroke="var(--accent2)" stroke-width="2" marker-end="url(#rC)"/>
+  <text x="200" y="210" font-size="11" fill="var(--accent2)">new txn, 32B</text>
+
+  <path d="M300,20 C 260,-10 400,-10 362,22" fill="none" stroke="var(--accent)" stroke-width="2" marker-end="url(#rC)"/>
+  <text x="330" y="5" text-anchor="middle" font-size="11" fill="var(--accent)">not last beat</text>
+
+  <path d="M300,272 C 260,300 400,300 362,270" fill="none" stroke="var(--accent2)" stroke-width="2" marker-end="url(#rC)"/>
+  <text x="330" y="298" text-anchor="middle" font-size="11" fill="var(--accent2)">not last beat</text>
+
+  <path d="M290,105 C 220,150 220,160 285,195" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#rC)"/>
+  <text x="200" y="150" text-anchor="middle" font-size="10">last beat, next txn ready &mdash; dispatch same cycle</text>
+
+  <path d="M290,105 C 170,110 110,110 125,92" fill="none" stroke="currentColor" stroke-width="1.5" marker-end="url(#rC)"/>
+  <text x="140" y="60" font-size="10">last beat, nothing next</text>
+
+  <path d="M290,195 C 170,190 110,190 125,188" fill="none" stroke="currentColor" stroke-width="1.5" marker-end="url(#rC)"/>
+  <text x="140" y="210" font-size="10">last beat, nothing next</text>
+</svg>
+<figcaption>IDLE dispatches the address phase immediately on arrival and decides ACCUM vs. PASS before a single data beat has even shown up. Both ACCUM and PASS, on their very last beat, try to dispatch the <em>next</em> transaction's address phase in that same cycle rather than detouring through IDLE &mdash; more on that below.</figcaption>
+</figure>
+
+<h2 id="handshake">Handshake discipline: gate ready, never retract valid</h2>
+<p>An AXI-style handshake has one inviolable rule: once a producer asserts <code>valid</code>, it must hold that value (and the data behind it) steady until the consumer asserts <code>ready</code> &mdash; a producer is never allowed to take <code>valid</code> back early just because something downstream got busy. This block's output side obeys that by applying all of its own backpressure <strong>upstream</strong>, at the ready signals it hands back to the write source, rather than ever touching its own output valid based on downstream state.</p>
+<div class="tablewrap">
+<table>
+<tr><th></th><th>cyc 1</th><th>cyc 2</th><th>cyc 3</th><th>cyc 4</th></tr>
+<tr><td>wrong: retract valid</td><td>valid=1</td><td style="color:var(--accent)">valid=0 (!) downstream was busy</td><td>valid=1 (different data?)</td><td>&mdash;</td></tr>
+<tr><td>right: hold valid, gate upstream</td><td>valid=1, stalls upstream via ready=0</td><td>valid=1 (same data, held)</td><td>valid=1, ready arrives, advances</td><td>next beat</td></tr>
+</table>
+</div>
+<p class="callout">Instead of a downstream stall ever reaching back and un-asserting this block's own output valid, the stall shows up <em>earlier</em>: the output FIFO stops accepting new pushes (it's full), which is exactly what makes this block de-assert the ready signal it gives its own upstream. The upstream write source just sees itself stalled, the same as it would against any full FIFO &mdash; it never needs to know or care that there's a repack engine in between.</p>
+
+<h2 id="backtoback">Squeezing out the idle cycle: back-to-back dispatch</h2>
+<p>The straightforward version of this FSM finishes a transaction's last beat, goes back to IDLE, and only <em>then</em> looks at whether another transaction is already waiting. That's a guaranteed one-cycle bubble between every pair of back-to-back transactions. The actual design checks, in the very same cycle as the last beat, whether the input address FIFO already has the next transaction waiting and the output address FIFO has room &mdash; and if so, dispatches it immediately, landing straight back in ACCUM or PASS instead of idling through IDLE first.</p>
+<div class="tablewrap">
+<table>
+<tr><th></th><th>cyc N</th><th>cyc N+1</th><th>cyc N+2</th></tr>
+<tr><td>naive</td><td>txn A, last beat</td><td>IDLE (nothing happens)</td><td>txn B address dispatched</td></tr>
+<tr><td>optimized</td><td>txn A, last beat <strong>+</strong> txn B address dispatched</td><td>txn B's first beat</td><td>txn B continues</td></tr>
+</table>
+</div>
+<p class="callout">One extra comparison in the FSM's combinational logic (is the next transaction already sitting there, and is there room to dispatch it) buys back a cycle on every single transaction boundary &mdash; worth it whenever back-to-back transactions are common in real traffic, which for a write path usually they are.</p>
+
+<h2 id="tradeoffs">Design tradeoffs, summarized</h2>
+<div class="cols">
+<div class="card">
+<h3>Merge vs. zero-pad every beat</h3>
+<p>Accumulating and merging costs an accumulator register and slot-tracking logic, but turns N narrow beats into far fewer wide ones. The alternative &mdash; zero-pad every narrow beat up to 32 bytes and send it straight through &mdash; is simpler hardware but burns downstream transaction bandwidth proportional to how narrow the traffic actually is.</p>
+</div>
+<div class="card">
+<h3>One accumulator vs. a scoreboard</h3>
+<p>Relying on the upstream guarantee of strictly increasing beat order collapses what could be a multi-slot scoreboard down to one register pair. The saving only holds as long as that ordering guarantee genuinely holds upstream &mdash; it's a hardware simplification purchased with a protocol assumption, not a free lunch.</p>
+</div>
+<div class="card">
+<h3>Precompute vs. pipeline</h3>
+<p>A per-beat multiply could instead have been <em>pipelined</em> (the companion page's whole subject). Here it's cheaper to notice the operation is constant across a whole burst and do it once, off the hot path, at dispatch time &mdash; a different fix for the same underlying problem, worth recognizing as its own option.</p>
+</div>
+<div class="card">
+<h3>Decoupled AW/W vs. one combined channel</h3>
+<p>Separate address and data FIFOs let the address phase reach downstream before any data has arrived, lowering address-visibility latency, at the cost of holding "current transaction" context (bytes-per-beat, slot table) in registers for however long the data phase takes to trickle in.</p>
+</div>
+</div>
+
+<h2 id="implementation">A generic implementation</h2>
+<p>Fresh names, debug/test infrastructure and the downstream address channel all left out so the repack logic itself stays in focus. Comments mark the magic numbers, the push/pop/valid/ready conditions, and the questions an interviewer is likely to ask about each one &mdash; including the exact bit-width bug from above, shown here already fixed.</p>
+
+<pre class="code">// Generic re-implementation of the accumulate-and-merge engine worked
+// through above -- fresh names, debug/BP-test infrastructure and the
+// downstream address channel omitted so the repack logic stays in focus.
+// Illustrative / simplified for teaching, not meant to drop into a real
+// flow as-is.
+
+module write_repack #(
+    parameter int OUT_BYTES = 32,   // downstream beat width -- MAGIC NUMBER: must match the RMW engine's native width
+    parameter int MAX_BEATS = 4     // longest burst this engine supports
+) (
+    input  logic                    clk,
+    input  logic                    rst_n,        // active-low, synchronous
+
+    // upstream address phase (one-shot per transaction)
+    input  logic                    up_aw_valid,
+    output logic                    up_aw_ready,
+    input  logic [5:0]              up_aw_bytes_per_beat, // decoded from a size field: 1,2,4,8,16,32
+    input  logic [1:0]              up_aw_len,            // burst length - 1 (0..3 -> 1..4 beats)
+
+    // upstream data phase (one beat per cycle)
+    input  logic                    up_w_valid,
+    output logic                    up_w_ready,
+    input  logic [OUT_BYTES*8-1:0]  up_w_data,
+    input  logic [OUT_BYTES-1:0]    up_w_strb,
+    input  logic                    up_w_last,
+
+    // downstream data phase
+    output logic                    dn_w_valid,
+    input  logic                    dn_w_ready,
+    output logic [OUT_BYTES*8-1:0]  dn_w_data,
+    output logic [OUT_BYTES-1:0]    dn_w_strb,
+    output logic                    dn_w_last
+);
+
+    localparam int LANE_W = $clog2(OUT_BYTES);             // 5, for OUT_BYTES=32
+    localparam int SLOT_W = $clog2(MAX_BEATS);             // 2, for MAX_BEATS=4
+    localparam int CNT_W  = $clog2(MAX_BEATS + 1);
+    localparam int OFF_W  = $clog2(MAX_BEATS * OUT_BYTES); // 7, for 4*32=128
+
+    typedef enum logic [1:0] {ST_IDLE, ST_ACCUM, ST_PASS} state_e;
+    state_e state, state_n;
+
+    // ---- per-transaction precomputed tables -- built ONCE per AW, not per beat ----
+    logic [SLOT_W-1:0]    slot_tbl [MAX_BEATS];
+    logic [OUT_BYTES-1:0] mask_tbl [MAX_BEATS];
+    logic [CNT_W-1:0]     num_beats_r;
+    logic [SLOT_W-1:0]    last_slot_r;
+
+    // ---- per-beat bookkeeping ----
+    logic [CNT_W-1:0]  beat_cnt;
+    logic [SLOT_W-1:0] out_beat_idx;
+
+    // ---- the one shared accumulator -- see "Why one accumulator" above ----
+    logic [OUT_BYTES*8-1:0] accum_data;
+    logic [OUT_BYTES-1:0]   accum_strb;
+
+    logic                   is_last_in_beat, slot_boundary, beat_completes;
+    logic [OUT_BYTES-1:0]   cur_mask;
+    logic [OUT_BYTES*8-1:0] masked_data;
+    logic [OUT_BYTES-1:0]   masked_strb;
+
+    assign is_last_in_beat = (beat_cnt + 1'b1 == num_beats_r);
+    assign slot_boundary   = !is_last_in_beat
+                           &amp;&amp; (slot_tbl[beat_cnt[SLOT_W-1:0]] != slot_tbl[beat_cnt[SLOT_W-1:0] + 1'b1]);
+    assign beat_completes  = is_last_in_beat || slot_boundary;
+    assign cur_mask        = mask_tbl[beat_cnt[SLOT_W-1:0]];
+
+    // INTERVIEWER Q: why mask the data at all -- doesn't upstream already
+    // place bytes in the right lanes?
+    //   -> masking is what GUARANTEES bytes no input beat covers come out
+    //      as 0 in the final strobe, instead of carrying stale bits
+    //      forward. It's a correctness safety net, not a re-derivation
+    //      of the address.
+    assign masked_strb = up_w_strb &amp; cur_mask;
+    always_comb
+        for (int b = 0; b &lt; OUT_BYTES; b++)
+            masked_data[b*8 +: 8] = cur_mask[b] ? up_w_data[b*8 +: 8] : 8'h0;
+
+    // =========================================================
+    // PUSH / POP handshake -- the part most likely to get poked at
+    // =========================================================
+
+    // Accept a new AW only once the current one has been dispatched.
+    // A real design would also gate this on an input FIFO not being
+    // full -- omitted here to keep focus on the repack control logic.
+    assign up_aw_ready = (state == ST_IDLE);
+
+    // Pop (accept) an upstream beat whenever we can do something useful
+    // with it THIS cycle:
+    //   ST_PASS                     : only if downstream can accept it
+    //   ST_ACCUM, not completing    : always -- it only updates the
+    //                                 accumulator, never touches dn_*
+    //   ST_ACCUM, completing a slot : only if downstream can accept the
+    //                                 flush -- otherwise the merged beat
+    //                                 would be lost
+    // INTERVIEWER Q: what breaks if up_w_ready ignored beat_completes
+    // and just always equalled dn_w_ready?
+    //   -> every non-flushing beat would incorrectly wait on a
+    //      downstream handshake it doesn't need, stalling accumulation
+    //      for no reason.
+    assign up_w_ready = (state == ST_PASS)                     ? dn_w_ready
+                       : (state == ST_ACCUM &amp;&amp; !beat_completes) ? 1'b1
+                       : (state == ST_ACCUM &amp;&amp;  beat_completes) ? dn_w_ready
+                       : 1'b0;
+
+    // Only assert downstream valid when actually emitting an output beat.
+    // INTERVIEWER Q: could this glitch -- go valid for a cycle, then back
+    // to invalid before dn_w_ready shows up?
+    //   -> no: it's a direct function of up_w_valid/beat_completes, and
+    //      `state` holds steady whenever dn_w_ready is 0 (see state_n
+    //      below), so whatever made valid=1 this cycle is still true
+    //      next cycle too. See "Handshake discipline" above -- this is
+    //      exactly the property that rule protects.
+    assign dn_w_valid = (state == ST_PASS  &amp;&amp; up_w_valid)
+                      || (state == ST_ACCUM &amp;&amp; up_w_valid &amp;&amp; beat_completes);
+
+    assign dn_w_data = (state == ST_PASS) ? up_w_data : (accum_data | masked_data);
+    assign dn_w_strb = (state == ST_PASS) ? up_w_strb : (accum_strb | masked_strb);
+    assign dn_w_last = dn_w_valid &amp;&amp; (out_beat_idx == last_slot_r);
+
+    // =========================================================
+    // Precompute: built once when an AW is accepted
+    // =========================================================
+    always_ff @(posedge clk) begin
+        if (up_aw_valid &amp;&amp; up_aw_ready) begin
+            automatic logic [OFF_W-1:0] off = '0;
+            // Safe to take the low LANE_W bits of up_aw_bytes_per_beat
+            // here: a value of exactly OUT_BYTES (32) only occurs for a
+            // pass-through transfer, which never reaches ST_ACCUM / this
+            // precompute path at all.
+            automatic logic [LANE_W-1:0] bpb = up_aw_bytes_per_beat[LANE_W-1:0];
+
+            for (int k = 0; k &lt; MAX_BEATS; k++) begin
+                slot_tbl[k] &lt;= off[OFF_W-1:LANE_W];
+                if (k == up_aw_len) last_slot_r &lt;= off[OFF_W-1:LANE_W];
+                // INTERVIEWER Q: why capture last_slot_r here instead of
+                // just reading slot_tbl[up_aw_len] after the loop?
+                //   -> slot_tbl is written with non-blocking assignments;
+                //      reading it back in the SAME always_ff would still
+                //      see last cycle's value, not what this loop just
+                //      computed. Capture it from the loop-local variable
+                //      instead.
+
+                // BIT-WIDTH NOTE: lane_end below must be LANE_W+1 bits
+                // (0..32, not 0..31) -- lane_start + bpb reaches exactly
+                // OUT_BYTES whenever a beat ends flush on a slot's top
+                // edge. A LANE_W-bit lane_end wraps 32 to 0 here and
+                // silently zeroes the whole mask. See "A real bit-width
+                // bug" above -- this is that exact bug, fixed.
+                automatic logic [LANE_W-1:0] lane_start = off[LANE_W-1:0];
+                automatic logic [LANE_W:0]   lane_end   = {1'b0, lane_start} + {1'b0, bpb};
+                for (int b = 0; b &lt; OUT_BYTES; b++)
+                    mask_tbl[k][b] &lt;= (b &gt;= lane_start) &amp;&amp; (b &lt; lane_end);
+
+                off = off + bpb;   // one add per beat, not k * bpb
+            end
+            num_beats_r &lt;= {1'b0, up_aw_len} + 1'b1;
+        end
+    end
+
+    // =========================================================
+    // FSM
+    // =========================================================
+    always_comb begin
+        state_n = state;
+        case (state)
+            ST_IDLE:
+                if (up_aw_valid &amp;&amp; up_aw_ready)
+                    state_n = (up_aw_bytes_per_beat == OUT_BYTES) ? ST_PASS : ST_ACCUM;
+            ST_ACCUM:
+                if (up_w_valid &amp;&amp; up_w_ready &amp;&amp; is_last_in_beat)
+                    state_n = ST_IDLE;
+                    // The real design also tries a same-cycle dispatch of
+                    // the NEXT transaction's AW right here instead of
+                    // always returning to IDLE -- omitted for brevity,
+                    // see "Back-to-back dispatch" above.
+            ST_PASS:
+                if (up_w_valid &amp;&amp; up_w_ready &amp;&amp; up_w_last)
+                    state_n = ST_IDLE;
+            default: state_n = ST_IDLE;
+        endcase
+    end
+
+    always_ff @(posedge clk) begin
+        if (!rst_n) state &lt;= ST_IDLE;
+        else        state &lt;= state_n;
+    end
+
+    always_ff @(posedge clk) begin
+        if (!rst_n) begin
+            beat_cnt     &lt;= '0;
+            out_beat_idx &lt;= '0;
+            accum_data   &lt;= '0;
+            accum_strb   &lt;= '0;
+        end else if (up_aw_valid &amp;&amp; up_aw_ready) begin
+            // New transaction accepted: every per-transaction counter
+            // and the accumulator reset together, in the SAME cycle the
+            // new AW lands.
+            beat_cnt     &lt;= '0;
+            out_beat_idx &lt;= '0;
+            accum_data   &lt;= '0;
+            accum_strb   &lt;= '0;
+        end else if (up_w_valid &amp;&amp; up_w_ready) begin
+            beat_cnt &lt;= beat_cnt + 1'b1;
+            if (state == ST_ACCUM) begin
+                if (beat_completes) begin
+                    accum_data   &lt;= '0;
+                    accum_strb   &lt;= '0;
+                    out_beat_idx &lt;= out_beat_idx + 1'b1;
+                end else begin
+                    accum_data &lt;= accum_data | masked_data;
+                    accum_strb &lt;= accum_strb | masked_strb;
+                end
+            end else begin // ST_PASS
+                out_beat_idx &lt;= out_beat_idx + 1'b1;
+            end
+        end
+    end
+
+endmodule</pre>
+<p class="callout">Illustrative, simplified for teaching &mdash; the point is that every push/pop/valid/ready condition traces back to a specific reason above (not "that's just how it was"), and the bit-width note in the precompute block is the exact bug from the "A real bit-width bug" section, shown here already corrected with the extra guard bit.</p>
+
+<h2 id="cheatsheet">Cheat sheet</h2>
+<div class="cheatbox">
+<h3>The pattern</h3>
+<ul>
+<li>Narrow-to-wide write combining: one wide accumulator (data + strobe), mask each incoming beat to its legal byte lanes, OR-merge, flush on a slot boundary or last beat.</li>
+<li>Slot = cumulative byte offset &gt;&gt; log2(output width) &mdash; a shift, not a divide, because the output width is a power of two.</li>
+<li>If an operation (like a per-beat slot/mask calculation) is <strong>constant across a whole burst</strong>, computing it once at dispatch time and reducing the hot path to a table lookup is often cheaper than pipelining it.</li>
+<li>One shared accumulator is only safe because of an upstream ordering guarantee (strictly increasing addresses) &mdash; note explicitly which protocol guarantee a simplification like this depends on.</li>
+<li>Bit-width bug class: any add/concat of a boundary value (here, lane_start + bytes_per_beat reaching exactly the output width) needs the "+1 bit" headroom rule &mdash; check the true maximum of every intermediate signal, not just the ones that look wide.</li>
+<li>Handshake-safe buffering: gate the <em>ready</em> you give your producer on your own output FIFO's fullness; never retract your own <em>valid</em> because of what's happening downstream.</li>
+<li>Fast-path the common case (already-wide writes) separately from the general case, so simple traffic doesn't pay for machinery it doesn't need.</li>
+<li>Check for an opportunity to dispatch the next transaction's address phase in the same cycle as the current one's last beat, rather than guaranteeing a bubble at every transaction boundary.</li>
+</ul>
+</div>
+
+<h2 id="takeaways">Takeaways</h2>
+<ul>
+<li>A bus-width mismatch between two stages doesn't need a multiply or a divide at all if you exploit what's actually constant within a transaction &mdash; here, bytes-per-beat is fixed per burst, so the arithmetic collapses to one small table, built once, not recomputed every cycle.</li>
+<li>Exploiting a protocol guarantee (strictly increasing beat order) can replace a general, expensive structure (a multi-slot scoreboard) with a trivially cheap one (one accumulator) &mdash; but that saving is only as solid as the guarantee it rests on.</li>
+<li>Off-by-one bit-width bugs hide at exact boundary values that ordinary testing tends to miss (here: a beat that lands exactly on a slot's upper edge) &mdash; the fix is always the same addition rule: check the true maximum value an intermediate signal can reach, not just how wide it "looks like it should be."</li>
+<li>A valid/ready handshake has exactly one correct place to apply backpressure: the ready you hand your own producer. Never retract your own valid because something further downstream is stalled.</li>
+<li>Fast-pathing the simple case (pass-through) and shaving a cycle off the common transition (back-to-back dispatch) are both small, local optimizations &mdash; and both pay off precisely because they target the traffic pattern that shows up most often in practice.</li>
+</ul>
+
+</main>
+
+<footer class="site-footer">
+  <a href="../index.html">&larr; Done projects</a> &middot; <a href="https://github.com/bubismark/logic-desgin-interview-prep">source on GitHub</a>
+</footer>
+
+</body>
+</html>

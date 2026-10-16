@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FIFOs: Full Explanation, From Gates to Gotchas &mdash; Logic Design Interview Prep</title>
+<meta name="description" content="What a FIFO is and why it's needed, the classic full-vs-empty pointer ambiguity and its fix, simultaneous read/write edge cases on full and empty, FWFT vs standard output, a full implementation, related data structures, and every push/pop gotcha an interviewer will probe.">
+<link rel="stylesheet" href="../assets/style.css">
+<style>
+  :root{
+    --bg:#faf8f5; --surface:#ffffff; --ink:#20211f; --sub:#5b5d58;
+    --line:#c9c4ba; --grid:#e7e2d8;
+    --accent:#b5502f;
+    --accent2:#2f6b5e;
+    --code-bg:#f0ede6; --code-ink:#2a2b28;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#1b1c19; --surface:#232420; --ink:#ece9e2; --sub:#a8a89f;
+      --line:#4a4b45; --grid:#33342f;
+      --accent:#e08a63; --accent2:#6fbfa8;
+      --code-bg:#2a2b26; --code-ink:#e5e2da;
+      color-scheme:dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#1b1c19; --surface:#232420; --ink:#ece9e2; --sub:#a8a89f;
+    --line:#4a4b45; --grid:#33342f;
+    --accent:#e08a63; --accent2:#6fbfa8;
+    --code-bg:#2a2b26; --code-ink:#e5e2da;
+    color-scheme:dark;
+  }
+  *{box-sizing:border-box}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:"Source Sans 3", Arial, sans-serif;
+    padding-inline:16px; padding-block:32px;
+    max-width:980px; margin-inline:auto;
+    line-height:1.55;
+  }
+  h1,h2,h3{font-family:"Fraunces","Georgia",serif; font-weight:600; text-wrap:balance}
+  h1{font-size:1.9rem; margin-bottom:.2em}
+  .kicker{color:var(--sub); font-size:.95rem; margin-bottom:2em}
+  h2{font-size:1.35rem; margin-top:2.6em; border-top:1px solid var(--line); padding-top:1em}
+  h3{font-size:1.08rem; margin:1.6em 0 .3em}
+  p{max-width:72ch}
+  code, pre{font-family:"IBM Plex Mono","SF Mono",monospace}
+  code{background:var(--code-bg); color:var(--code-ink); padding:.1em .35em; border-radius:4px; font-size:.9em}
+
+  .toc{font-size:.85rem; color:var(--sub); margin-bottom:2em; display:flex; flex-wrap:wrap; gap:.3em .6em}
+  .toc a{color:var(--sub); text-decoration:underline; text-underline-offset:2px}
+  .toc a:hover{color:var(--ink)}
+  .toc span.sep{opacity:.5}
+
+  .steps{display:grid; gap:14px; margin-top:1em}
+  .step{display:grid; grid-template-columns:2.4em 1fr; gap:14px; min-width:0}
+  .step .num{font-family:"Fraunces",serif; font-size:1.3rem; color:var(--sub); line-height:1; padding-top:.1em}
+  .step p{margin:0; max-width:64ch}
+  .step h3{margin:0 0 .2em}
+
+  .card{background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:18px; min-width:0}
+  .cols{display:grid; grid-template-columns:1fr 1fr; gap:18px; align-items:start; margin-top:1em}
+  @media (max-width:760px){ .cols{grid-template-columns:1fr} }
+
+  figure{margin:1.4em 0}
+  figcaption{font-size:.85rem; color:var(--sub); margin-top:.6em; max-width:72ch}
+  svg text{fill:currentColor; font-family:"IBM Plex Mono","SF Mono",monospace}
+
+  table{border-collapse:collapse; width:100%; font-size:.9rem; margin-top:.8em}
+  th,td{border:1px solid var(--line); padding:.4em .55em; text-align:center}
+  th{background:var(--code-bg); font-weight:600}
+  .tablewrap{overflow-x:auto}
+
+  pre.code{background:var(--code-bg); color:var(--code-ink); padding:14px 16px; border-radius:8px; overflow-x:auto; font-size:.85rem; line-height:1.5}
+
+  .callout{border-left:3px solid var(--accent); padding:.2em 1em; margin:1.4em 0; color:var(--sub); font-size:.95rem; max-width:72ch}
+  .callout strong{color:var(--ink)}
+
+  .gotcha{border:1px solid var(--line); border-radius:10px; padding:16px 20px; margin:1.2em 0; background:var(--surface)}
+  .gotcha .claim{color:var(--accent); font-weight:600}
+  .gotcha .fix{color:var(--accent2); font-weight:600}
+
+  .dialogue{border:1px solid var(--line); border-radius:10px; padding:18px 22px; background:var(--surface); margin:1.2em 0}
+  .dialogue p{margin:.7em 0}
+  .dialogue .who{font-weight:700}
+  .dialogue .interviewer .who{color:var(--accent)}
+  .dialogue .you .who{color:var(--accent2)}
+
+  .cheatbox{border:1px solid var(--line); border-radius:10px; padding:20px 22px; background:var(--surface); margin-top:1em}
+  .cheatbox h3{margin-top:0}
+
+  .diagram-scroll{overflow-x:auto}
+</style>
+</head>
+<body>
+
+<nav class="site-nav">
+  <a href="../index.html">Logic Design Interview Prep</a><span class="crumb-sep">/</span><span>FIFOs</span>
+</nav>
+
+<main>
+
+<h1>FIFOs: full explanation, from gates to gotchas</h1>
+<p class="kicker">A FIFO looks trivial &mdash; "a queue in hardware" &mdash; right up until someone asks what happens when you try to write and read on the exact same clock edge, while the buffer happens to be full. That one question, worked all the way through, is most of what an interviewer actually wants to hear. This page builds the whole thing up from why it exists to a full implementation, with every edge case named explicitly.</p>
+
+<nav class="toc" aria-label="Page sections">
+<a href="#what">What it is</a><span class="sep">&middot;</span><a href="#why">Why it's needed</a><span class="sep">&middot;</span><a href="#anatomy">Anatomy</a><span class="sep">&middot;</span><a href="#push-pop">Push/pop conditions</a><span class="sep">&middot;</span><a href="#ambiguity">The full/empty ambiguity</a><span class="sep">&middot;</span><a href="#extra-bit">The fix: one extra bit</a><span class="sep">&middot;</span><a href="#counter-alt">Counter alternative</a><span class="sep">&middot;</span><a href="#simultaneous">Simultaneous read &amp; write</a><span class="sep">&middot;</span><a href="#fwft">FWFT vs. standard</a><span class="sep">&middot;</span><a href="#flags">Overflow, underflow, watermarks</a><span class="sep">&middot;</span><a href="#impl">A full implementation</a><span class="sep">&middot;</span><a href="#related">Related data structures</a><span class="sep">&middot;</span><a href="#gotchas">Gotchas</a><span class="sep">&middot;</span><a href="#interview-qa">Interview Q&amp;A</a><span class="sep">&middot;</span><a href="#cheatsheet">Cheat sheet</a>
+</nav>
+
+<h2 id="what">What a FIFO is</h2>
+<p><strong>F</strong>irst <strong>I</strong>n, <strong>F</strong>irst <strong>O</strong>ut: items come out in exactly the order they went in. One side pushes data in, the other side pops data out, and the FIFO itself never reorders anything.</p>
+<figure class="diagram-scroll">
+<svg viewBox="0 0 600 180" role="img" aria-label="A FIFO box with items A, B, C queued inside in order. A write arrow enters on the left adding new items at the back. A read arrow exits on the right taking the oldest item, A, from the front. Full and empty flag outputs are shown at the top.">
+  <rect x="140" y="40" width="320" height="90" rx="8" fill="none" stroke="currentColor" stroke-width="2"/>
+  <text x="300" y="30" text-anchor="middle" font-size="12" fill="var(--sub)">FIFO</text>
+  <g font-size="13">
+    <rect x="160" y="65" width="50" height="40" fill="none" stroke="var(--accent)" stroke-width="2"/><text x="185" y="90" text-anchor="middle" fill="var(--accent)">A</text>
+    <rect x="215" y="65" width="50" height="40" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="240" y="90" text-anchor="middle">B</text>
+    <rect x="270" y="65" width="50" height="40" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="295" y="90" text-anchor="middle">C</text>
+  </g>
+  <text x="185" y="120" text-anchor="middle" font-size="10" fill="var(--sub)">oldest &mdash; leaves next</text>
+  <text x="400" y="120" text-anchor="middle" font-size="10" fill="var(--sub)">empty slots</text>
+
+  <line x1="20" y1="85" x2="138" y2="85" stroke="var(--accent2)" stroke-width="2"/>
+  <text x="25" y="75" font-size="12" fill="var(--accent2)">write (push)</text>
+  <line x1="462" y1="85" x2="580" y2="85" stroke="var(--accent)" stroke-width="2"/>
+  <text x="470" y="75" font-size="12" fill="var(--accent)">read (pop)</text>
+
+  <text x="200" y="155" font-size="11">full &rarr;</text>
+  <text x="330" y="155" font-size="11">&larr; empty</text>
+</svg>
+<figcaption>Push adds to the back; pop removes from the front. The two flags &mdash; <code>full</code> and <code>empty</code> &mdash; are the FIFO protecting itself, and getting them exactly right is the entire subject of this page.</figcaption>
+</figure>
+
+<h2 id="why">Why it's needed</h2>
+<p>Two blocks that need to exchange data almost never produce and consume at identical, perfectly steady rates. A producer might burst several items in back-to-back cycles and then go idle; a consumer might process at a fixed cadence, or stall occasionally for its own reasons. Without a buffer in between, either side has to stop dead the instant the other can't keep up &mdash; a FIFO absorbs that mismatch, letting each side run at its own pace as long as the <em>average</em> rates agree over time.</p>
+<div class="callout">A FIFO doesn't fix a <strong>permanent</strong> rate mismatch &mdash; if the producer is faster than the consumer forever, the FIFO just delays the inevitable overflow. What it buys you is tolerance for <strong>bursts</strong> and <strong>temporary</strong> stalls on either side.</div>
+
+<h2 id="anatomy">Anatomy of a FIFO</h2>
+<p>Under the hood: a storage array (registers or RAM), a <strong>write pointer</strong> marking the next free slot, a <strong>read pointer</strong> marking the oldest occupied slot, and control logic that derives <code>full</code>/<code>empty</code> from those two pointers. It's a circular buffer &mdash; when a pointer reaches the last slot, it wraps back to slot 0.</p>
+<figure class="diagram-scroll">
+<svg viewBox="0 0 680 200" role="img" aria-label="Eight storage slots in a row. The write pointer points at slot 5, the next free slot. The read pointer points at slot 2, the oldest occupied slot. Slots 2 through 4 are shaded as occupied. A curved arrow from the last slot back to the first slot shows the wraparound.">
+  <g font-size="12">
+    <rect x="20"  y="60" width="70" height="50" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="55" y="90" text-anchor="middle" fill="var(--sub)">0</text>
+    <rect x="90"  y="60" width="70" height="50" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="125" y="90" text-anchor="middle" fill="var(--sub)">1</text>
+    <rect x="160" y="60" width="70" height="50" fill="var(--accent)" fill-opacity=".15" stroke="var(--accent)" stroke-width="2"/><text x="195" y="90" text-anchor="middle">2</text>
+    <rect x="230" y="60" width="70" height="50" fill="var(--accent)" fill-opacity=".15" stroke="var(--accent)" stroke-width="2"/><text x="265" y="90" text-anchor="middle">3</text>
+    <rect x="300" y="60" width="70" height="50" fill="var(--accent)" fill-opacity=".15" stroke="var(--accent)" stroke-width="2"/><text x="335" y="90" text-anchor="middle">4</text>
+    <rect x="370" y="60" width="70" height="50" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="405" y="90" text-anchor="middle" fill="var(--sub)">5</text>
+    <rect x="440" y="60" width="70" height="50" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="475" y="90" text-anchor="middle" fill="var(--sub)">6</text>
+    <rect x="510" y="60" width="70" height="50" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="545" y="90" text-anchor="middle" fill="var(--sub)">7</text>
+  </g>
+  <line x1="195" y1="130" x2="195" y2="112" stroke="var(--accent)" stroke-width="2"/>
+  <text x="195" y="148" text-anchor="middle" font-size="11" fill="var(--accent)">rd_ptr</text>
+  <text x="195" y="163" text-anchor="middle" font-size="9" fill="var(--sub)">oldest item</text>
+
+  <line x1="405" y1="40" x2="405" y2="58" stroke="var(--accent2)" stroke-width="2"/>
+  <text x="405" y="28" text-anchor="middle" font-size="11" fill="var(--accent2)">wr_ptr</text>
+  <text x="405" y="18" text-anchor="middle" font-size="9" fill="var(--sub)">next free slot</text>
+
+  <path d="M575,65 C 620,65 620,130 20,130 C 10,130 10,110 15,105" fill="none" stroke="var(--sub)" stroke-width="1.5" stroke-dasharray="3 3"/>
+  <text x="600" y="100" font-size="10" fill="var(--sub)">wraps around</text>
+</svg>
+<figcaption>Occupied slots (2, 3, 4) sit between <code>rd_ptr</code> and <code>wr_ptr</code>. Both pointers only ever move forward and wrap &mdash; this is exactly the circular-buffer pattern used for the moving-average window on the Sliding Window page, applied here to a general-purpose queue.</figcaption>
+</figure>
+
+<h2 id="push-pop">Push and pop conditions</h2>
+<p>The baseline rule, before any edge cases: a push is only allowed when there's room, and a pop is only allowed when there's something there.</p>
+<pre class="code">push happens when:  wr_en  &amp;&amp;  !full
+pop  happens when:  rd_en  &amp;&amp;  !empty</pre>
+<p>Simple to state. The entire rest of this page is about what "full" and "empty" actually mean, and what happens at the exact moment one of them is about to change.</p>
+
+<h2 id="ambiguity">The classic problem: full and empty look identical</h2>
+<p>Use plain N-bit pointers that just wrap at the buffer depth, and watch what happens to a depth-4 FIFO:</p>
+<div class="tablewrap">
+<table>
+<tr><th>State</th><th>wr_ptr</th><th>rd_ptr</th><th>Equal?</th></tr>
+<tr><td>Freshly reset, nothing written</td><td>00</td><td>00</td><td>yes</td></tr>
+<tr><td>Pushed 4 items (completely full), none read</td><td>00 (wrapped back around)</td><td>00</td><td>yes</td></tr>
+</table>
+</div>
+<p><strong>Both states give <code>wr_ptr == rd_ptr</code>.</strong> With only N bits of pointer, empty and completely-full are indistinguishable &mdash; comparing the pointers alone cannot tell them apart.</p>
+
+<h2 id="extra-bit">The standard fix: one extra pointer bit</h2>
+<p>Make the pointers one bit <strong>wider</strong> than needed to address the memory. For a depth-<code>D</code> (power of two) FIFO needing <code>N=log&#8322;D</code> address bits, use <code>N+1</code>-bit pointers. The low N bits still address the memory; the extra top bit flips every time a pointer wraps around. Two pointers can now be equal in address but differ in that top bit &mdash; and that difference is exactly what separates "empty" from "full."</p>
+<div class="tablewrap">
+<table>
+<tr><th></th><th>Address bits equal?</th><th>Top bit equal?</th><th>Meaning</th></tr>
+<tr><td><strong>Empty</strong></td><td>yes</td><td>yes (pointers fully equal)</td><td>nothing written since last fully drained</td></tr>
+<tr><td><strong>Full</strong></td><td>yes</td><td style="color:var(--accent)">no &mdash; different</td><td>write has lapped read exactly once</td></tr>
+</table>
+</div>
+<p>Worked through on the same depth-4 example, with 3-bit pointers (2 address bits + 1 extra):</p>
+<div class="tablewrap">
+<table>
+<tr><th>Action</th><th>wr_ptr</th><th>rd_ptr</th><th>Address bits</th><th>Top bits</th><th>Status</th></tr>
+<tr><td>Reset</td><td>000</td><td>000</td><td>00 = 00</td><td>0 = 0</td><td><strong>empty</strong></td></tr>
+<tr><td>Push &times;4</td><td>100</td><td>000</td><td>00 = 00</td><td style="color:var(--accent)">1 &ne; 0</td><td><strong>full</strong></td></tr>
+<tr><td>Pop &times;1</td><td>100</td><td>001</td><td>00 &ne; 01</td><td>&mdash;</td><td>neither (3 items)</td></tr>
+<tr><td>Pop &times;3 more</td><td>100</td><td>100</td><td>00 = 00</td><td>1 = 1</td><td><strong>empty</strong> again</td></tr>
+</table>
+</div>
+<figure class="diagram-scroll">
+<svg viewBox="0 0 560 220" role="img" aria-label="Two three-bit pointer registers compared. In the empty case, write pointer 000 and read pointer 000 match in every bit including the top extra bit. In the full case, write pointer 100 and read pointer 000 match in the two low address bits but differ in the top extra bit, which is highlighted.">
+  <text x="20" y="30" font-size="12" fill="var(--sub)">EMPTY</text>
+  <g font-size="14">
+    <text x="20" y="60">wr_ptr</text>
+    <rect x="100" y="40" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="115" y="62" text-anchor="middle">0</text>
+    <rect x="130" y="40" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="145" y="62" text-anchor="middle">0</text>
+    <rect x="160" y="40" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="175" y="62" text-anchor="middle">0</text>
+    <text x="20" y="100">rd_ptr</text>
+    <rect x="100" y="80" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="115" y="102" text-anchor="middle">0</text>
+    <rect x="130" y="80" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="145" y="102" text-anchor="middle">0</text>
+    <rect x="160" y="80" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="175" y="102" text-anchor="middle">0</text>
+  </g>
+  <text x="145" y="30" text-anchor="middle" font-size="9" fill="var(--sub)">extra bit</text>
+  <text x="145" y="128" text-anchor="middle" font-size="10" fill="var(--accent2)">all 3 bits equal &rarr; empty</text>
+
+  <text x="320" y="30" font-size="12" fill="var(--sub)">FULL (after 4 pushes)</text>
+  <g font-size="14">
+    <text x="320" y="60">wr_ptr</text>
+    <rect x="400" y="40" width="30" height="30" fill="var(--accent)" fill-opacity=".2" stroke="var(--accent)" stroke-width="2"/><text x="415" y="62" text-anchor="middle" fill="var(--accent)">1</text>
+    <rect x="430" y="40" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="445" y="62" text-anchor="middle">0</text>
+    <rect x="460" y="40" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="475" y="62" text-anchor="middle">0</text>
+    <text x="320" y="100">rd_ptr</text>
+    <rect x="400" y="80" width="30" height="30" fill="var(--accent)" fill-opacity=".2" stroke="var(--accent)" stroke-width="2"/><text x="415" y="102" text-anchor="middle" fill="var(--accent)">0</text>
+    <rect x="430" y="80" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="445" y="102" text-anchor="middle">0</text>
+    <rect x="460" y="80" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="475" y="102" text-anchor="middle">0</text>
+  </g>
+  <text x="445" y="128" text-anchor="middle" font-size="10" fill="var(--accent)">address bits (right two) equal, extra bit differs &rarr; full</text>
+  <text x="280" y="180" text-anchor="middle" font-size="11" fill="var(--sub)">same address, same physical slot &mdash; only the lapped/not-lapped history differs</text>
+</svg>
+<figcaption>The extra bit is the whole mechanism, made visible: identical pointers (including that bit) mean nothing has been written since the buffer was last drained; identical addresses with a differing extra bit mean the writer has gone all the way around once more than the reader.</figcaption>
+</figure>
+<p>Exactly the behavior needed, with nothing more exotic than one extra flop per pointer. Bonus: <code>wr_ptr &minus; rd_ptr</code> (as unsigned (N+1)-bit subtraction) directly gives the current occupancy count, 0 through D, thanks to the pointers living in mod-2<sup>N+1</sup> arithmetic while the buffer itself is exactly 2<sup>N</sup> deep.</p>
+
+<h2 id="counter-alt">Alternative: an explicit counter</h2>
+<p>Instead of comparing pointer bits, keep a separate up/down counter that directly tracks occupancy: increment on a push-only cycle, decrement on a pop-only cycle, hold on both-or-neither. <code>full = (count==DEPTH)</code>, <code>empty = (count==0)</code>.</p>
+<div class="cols">
+<div class="card">
+<h3>Pointer-compare</h3>
+<p>No adder/subtractor needed for full/empty &mdash; just a bit compare. Naturally gives you the count too, almost for free, via subtraction. The standard choice in most FIFO IP.</p>
+</div>
+<div class="card">
+<h3>Explicit counter</h3>
+<p>Conceptually simpler to read in RTL, and doesn't require the depth to be a clean power of two to reason about &mdash; but needs a real up/down counter (an extra adder/subtractor), and simultaneous push+pop must be handled as one explicit case (hold), not accidentally coded as sequential if/else priority that only applies one of the two.</p>
+</div>
+</div>
+
+<h2 id="simultaneous">Simultaneous read and write &mdash; the part interviewers actually probe</h2>
+<h3>The normal case: neither full nor empty</h3>
+<p>Nothing special: the push and the pop both happen, occupancy stays the same, both pointers advance by one. No interaction between them at all.</p>
+
+<h3>Read and write together while FULL</h3>
+<p>This is the one most naive implementations get wrong. If "full" is used to flatly block every write, a simultaneous pop-and-push on a full buffer <strong>loses the incoming item for no reason</strong> &mdash; the pop just freed a slot in that same cycle, so the push should be allowed to land in it, keeping the FIFO at full occupancy with one item correctly swapped for another.</p>
+<pre class="code">wr_act = wr_en &amp;&amp; (!full || rd_act)     // let the write through if a same-cycle pop frees room
+rd_act = rd_en &amp;&amp; !empty</pre>
+<figure class="diagram-scroll">
+<svg viewBox="0 0 640 190" role="img" aria-label="A full four-slot buffer where the write pointer and read pointer both target the same physical slot, slot 0, because the write pointer has lapped the read pointer. A read fetches the old value from slot 0 while a write lands a new value into slot 0 in the same cycle. The memory's non-blocking write means the read still sees the old data this cycle.">
+  <g font-size="12">
+    <rect x="40"  y="40" width="70" height="50" fill="var(--accent)" fill-opacity=".15" stroke="var(--accent)" stroke-width="2"/><text x="75" y="70" text-anchor="middle">0</text>
+    <rect x="110" y="40" width="70" height="50" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="145" y="70" text-anchor="middle">1</text>
+    <rect x="180" y="40" width="70" height="50" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="215" y="70" text-anchor="middle">2</text>
+    <rect x="250" y="40" width="70" height="50" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="285" y="70" text-anchor="middle">3</text>
+  </g>
+  <text x="75" y="25" text-anchor="middle" font-size="11">wr_ptr &amp; rd_ptr both address slot 0 (full)</text>
+  <line x1="75" y1="95" x2="75" y2="120" stroke="var(--accent2)" stroke-width="2"/>
+  <text x="75" y="140" text-anchor="middle" font-size="11" fill="var(--accent2)">read: gets OLD value</text>
+  <line x1="355" y1="110" x2="110" y2="65" stroke="var(--accent)" stroke-width="2"/>
+  <text x="430" y="115" font-size="11" fill="var(--accent)">write: new value lands here,</text>
+  <text x="430" y="130" font-size="11" fill="var(--accent)">visible starting NEXT cycle</text>
+  <text x="320" y="170" text-anchor="middle" font-size="11" fill="var(--sub)">this only works because the memory write is non-blocking &mdash; it never corrupts the same-cycle read</text>
+</svg>
+<figcaption>When full, <code>wr_ptr</code> and <code>rd_ptr</code> address the exact same physical slot (that's what full structurally means). A simultaneous read+write targets that same address &mdash; safe only because the write takes effect at the end of the clock edge (<code>&lt;=</code> in RTL), so the read sees the old data this cycle and the new data starting next cycle, never a mix of both.</figcaption>
+</figure>
+
+<h3>Read and write together while EMPTY</h3>
+<p>This one is <strong>not</strong> automatically safe, and the asymmetry with the full case is itself a good interview point. A write landing this cycle doesn't exist in memory until the clock edge completes &mdash; there is nothing yet for a same-cycle read to fetch. Without extra hardware, <code>rd_act</code> must stay strictly <code>rd_en &amp;&amp; !empty</code>: a read request against an empty FIFO is simply held off, even if a write is happening in that same cycle, and the data becomes poppable starting next cycle. Making the just-written data visible in the <em>same</em> cycle it arrives needs an explicit bypass path &mdash; which is precisely what the next section is about.</p>
+
+<h2 id="fwft">First-Word Fall-Through (FWFT) vs. standard output</h2>
+<div class="cols">
+<div class="card">
+<h3>Standard (registered output)</h3>
+<p>Assert <code>rd_en</code> for one cycle to request a pop; the data appears on <code>rd_data</code> one cycle <em>later</em>. The consumer has to remember "I asked, I'll see it next cycle."</p>
+</div>
+<div class="card">
+<h3>FWFT</h3>
+<p><code>rd_data</code> continuously shows the current head item whenever <code>!empty</code>, with no request needed to see it. <code>rd_en</code> (often called <code>pop</code> or an accept/ack signal in this mode) just means "I'm done with this one, advance." One cycle of latency saved on every pop.</p>
+</div>
+</div>
+<div class="tablewrap">
+<table>
+<tr><th>cycle</th><th>1</th><th>2</th><th>3</th><th>4</th></tr>
+<tr><td>standard: rd_en</td><td>1</td><td>0</td><td>0</td><td>0</td></tr>
+<tr><td>standard: rd_data valid</td><td></td><td><strong>yes</strong></td><td></td><td></td></tr>
+<tr><td>FWFT: rd_data valid</td><td><strong>yes (already)</strong></td><td></td><td></td><td></td></tr>
+<tr><td>FWFT: rd_en (accept)</td><td>1</td><td>0</td><td>0</td><td>0</td></tr>
+</table>
+</div>
+<div class="gotcha"><p><span class="claim">The classic integration bug:</span> treating a FWFT FIFO's <code>rd_en</code> as "give me new data" &mdash; which silently <strong>skips</strong> the item currently sitting on <code>rd_data</code>, since it was already valid before you ever asserted anything. Or the mirror mistake: treating a standard FIFO's <code>rd_en</code> as "the data is already there," reading one cycle too early and getting stale data. <span class="fix">Always check which convention a given FIFO (your own, or a vendor IP core) actually implements</span> before wiring up the consumer &mdash; it's a one-line datasheet detail with an easy-to-miss, hard-to-debug consequence.</p></div>
+
+<h2 id="flags">Overflow, underflow, and watermark flags</h2>
+<p>Two more flag conventions worth naming explicitly:</p>
+<div class="cols">
+<div class="card">
+<h3>Overflow / underflow (sticky error flags)</h3>
+<p>Internally, a push while full or a pop while empty must always be silently discarded by the FIFO itself &mdash; pointers must never be corrupted by an illegal request. Whether to also raise a sticky <code>overflow</code>/<code>underflow</code> flag for the system to notice is a separate design choice: it turns a silent, easy-to-miss bug in the producer/consumer into a visible, debuggable one.</p>
+</div>
+<div class="card">
+<h3>Almost-full / almost-empty (programmable watermarks)</h3>
+<p>A producer that only finds out the FIFO is <code>full</code> the same cycle it tries to write may already be one cycle too late if there's any round-trip latency in the handshake. An <code>almost_full</code> flag, asserted some programmable number of slots <em>before</em> actually full, gives the producer enough warning to stop in time &mdash; the exact margin needed is a direct function of that round-trip latency.</p>
+</div>
+</div>
+
+<h2 id="impl">A full implementation</h2>
+<p>Parameterized, pointer-compare style, with the simultaneous-read/write handling from above built in and every push/pop condition commented.</p>
+<pre class="code">module sync_fifo #(
+    parameter int WIDTH = 8,
+    parameter int DEPTH = 16          // MAGIC NUMBER: must be a power of 2 -- the
+                                       // extra-bit trick below depends on it exactly
+) (
+    input  logic             clk,
+    input  logic             rst_n,    // active-low, synchronous
+
+    input  logic             wr_en,
+    input  logic [WIDTH-1:0] wr_data,
+    output logic             full,
+
+    input  logic             rd_en,
+    output logic [WIDTH-1:0] rd_data,
+    output logic             empty
+);
+
+    localparam int AW = $clog2(DEPTH);   // address bits into the memory
+
+    logic [WIDTH-1:0] mem [DEPTH];
+    logic [AW:0] wr_ptr, rd_ptr;         // AW+1 bits -- the extra top bit IS the trick
+
+    // =====================================================
+    // PUSH / POP qualification -- the part most likely to get poked at
+    // =====================================================
+    logic wr_act, rd_act;
+    assign rd_act = rd_en &amp;&amp; !empty;
+    // INTERVIEWER Q: why does wr_act check rd_act, but rd_act doesn't
+    // check wr_act back?
+    //   -> a same-cycle pop always safely frees a slot for a write (see
+    //      "Simultaneous read and write, FULL" above); a same-cycle
+    //      write does NOT make data available to a same-cycle read
+    //      without extra bypass hardware (see "FWFT" above) -- the two
+    //      directions are genuinely not symmetric.
+    assign wr_act = wr_en &amp;&amp; (!full || rd_act);
+
+    always_ff @(posedge clk) begin
+        if (wr_act) mem[wr_ptr[AW-1:0]] &lt;= wr_data;
+    end
+    assign rd_data = mem[rd_ptr[AW-1:0]];
+    // INTERVIEWER Q: when FULL and both acts fire, wr_ptr and rd_ptr
+    // address the SAME slot this cycle -- is rd_data still correct?
+    //   -> yes: mem[] only updates via a non-blocking assignment, which
+    //      takes effect at the end of this time step, so the
+    //      combinational read above still returns the OLD value this
+    //      cycle. The new value is visible starting next cycle, after
+    //      rd_ptr has already moved past this slot.
+
+    always_ff @(posedge clk) begin
+        if (!rst_n) begin
+            wr_ptr &lt;= '0;
+            rd_ptr &lt;= '0;
+        end else begin
+            if (wr_act) wr_ptr &lt;= wr_ptr + 1'b1;   // wraps naturally at 2^(AW+1)
+            if (rd_act) rd_ptr &lt;= rd_ptr + 1'b1;
+        end
+    end
+
+    // The extra-bit trick:
+    //   empty: pointers fully equal, including the extra top bit
+    //   full : same address (low AW bits), extra bit differs --
+    //          write has lapped read exactly once
+    assign empty = (wr_ptr == rd_ptr);
+    assign full  = (wr_ptr[AW-1:0] == rd_ptr[AW-1:0]) &amp;&amp; (wr_ptr[AW] != rd_ptr[AW]);
+    // INTERVIEWER Q: could full and empty ever both be true at once?
+    //   -> no, by construction: empty requires the top bits to match;
+    //      full requires them to differ. Mutually exclusive, always.
+
+endmodule</pre>
+<div class="callout">Illustrative, simplified for teaching &mdash; a real design would also reset/guard <code>mem[]</code> contents predictably for simulation and may register <code>rd_data</code> for timing depending on whether standard or FWFT behavior is wanted (this version is effectively FWFT, since <code>rd_data</code> is a combinational read that's valid the instant <code>!empty</code>, with no separate request needed).</div>
+
+<h2 id="related">Related data structures</h2>
+<div class="cols">
+<div class="card">
+<h3>LIFO / stack</h3>
+<p>Push and pop happen at the <strong>same</strong> end (the top), tracked by a single pointer &mdash; not two. "What's the structural difference between a FIFO and a LIFO" is a fair, simple interview question whose honest answer is exactly that: one pointer and one end, versus two pointers and two ends.</p>
+<figure>
+<svg viewBox="0 0 400 150" role="img" aria-label="FIFO shown with push entering the left end and pop leaving the right end, two different ends. LIFO shown with both push and pop at the same top end of a vertical stack, one end only.">
+  <text x="20" y="20" font-size="11" fill="var(--sub)">FIFO</text>
+  <rect x="20" y="30" width="140" height="30" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <line x1="0" y1="45" x2="18" y2="45" stroke="var(--accent2)" stroke-width="2"/><text x="0" y="36" font-size="9" fill="var(--accent2)">push</text>
+  <line x1="162" y1="45" x2="185" y2="45" stroke="var(--accent)" stroke-width="2"/><text x="165" y="36" font-size="9" fill="var(--accent)">pop</text>
+  <text x="90" y="75" text-anchor="middle" font-size="10" fill="var(--sub)">two ends, two pointers</text>
+
+  <text x="250" y="20" font-size="11" fill="var(--sub)">LIFO</text>
+  <rect x="270" y="30" width="60" height="100" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <line x1="300" y1="10" x2="300" y2="28" stroke="var(--accent2)" stroke-width="2"/><text x="305" y="15" font-size="9" fill="var(--accent2)">push</text>
+  <line x1="340" y1="40" x2="332" y2="40" stroke="var(--accent)" stroke-width="2"/><text x="345" y="44" font-size="9" fill="var(--accent)">pop</text>
+  <text x="300" y="148" text-anchor="middle" font-size="10" fill="var(--sub)">one end, one pointer</text>
+</svg>
+</figure>
+</div>
+<div class="card">
+<h3>Shift-register FIFO</h3>
+<p>For very shallow depths, some designs literally shift every entry one slot over each cycle instead of moving pointers &mdash; no address logic at all, at the cost of every stored bit toggling every cycle. This is the exact same flops-vs-RAM-circular-buffer trade-off covered in depth on the Sliding Window page's moving-average section &mdash; same trade-off, same crossover reasoning, different application.</p>
+</div>
+</div>
+<div class="cols">
+<div class="card">
+<h3>Asynchronous (dual-clock) FIFO</h3>
+<p>When the write side and read side run off unrelated clocks, comparing raw binary pointers across the boundary is unsafe &mdash; incrementing a binary counter can flip several bits at once (e.g. <code>011&rarr;100</code>), and a sampler on the other clock could catch an inconsistent mix of old and new bits. The fix is <strong>Gray-coded</strong> pointers, where consecutive values differ in exactly <strong>one</strong> bit, so an asynchronous sample is always either the fully-old or fully-new value, never garbage. The full cross-domain synchronizer-chain treatment lives on this site's CDC &amp; synchronizers page &mdash; this is the FIFO-specific reason it's needed.</p>
+</div>
+<div class="card">
+<h3>Monotonic deque</h3>
+<p>Looks superficially similar (a double-ended buffer), but solves a completely different problem &mdash; maintaining a running <em>maximum</em>, not preserving arrival order. Covered in full, with traces, on the Sliding Window page. A good reminder that "queue-shaped" doesn't mean "FIFO-shaped": a FIFO never reorders or discards entries the way a monotonic deque deliberately does.</p>
+</div>
+</div>
+
+<h2 id="gotchas">Gotchas</h2>
+<div class="gotcha"><p><span class="claim">"Just gate write_en with !full and read_en with !empty, done."</span><br><span class="fix">Not quite</span> &mdash; that naive version loses data on a simultaneous push+pop while full, since it blocks the write even though the concurrent pop just freed a slot. See "Simultaneous read and write" above.</p></div>
+<div class="gotcha"><p><span class="claim">"If it's safe to write-through on full, it must be symmetric for empty."</span><br><span class="fix">It isn't.</span> A same-cycle pop safely reuses a slot being read; a same-cycle push doesn't make data available to a same-cycle read without explicit bypass hardware (FWFT-style). Two different mechanisms, not mirror images.</p></div>
+<div class="gotcha"><p><span class="claim">"The depth doesn't need to be a power of two."</span><br><span class="fix">Not for the extra-bit trick</span> &mdash; it specifically relies on the pointer wrapping at exactly 2&times; the addressable depth. A non-power-of-two depth needs explicit magnitude comparison logic instead of the simple bit-compare.</p></div>
+<div class="gotcha"><p><span class="claim">"FWFT and standard-output FIFOs use read_en the same way."</span><br><span class="fix">They don't</span> &mdash; FWFT's <code>rd_en</code> means "accept/advance," standard's means "request." Mixing the two conventions up when integrating a vendor IP core is a classic, easy-to-miss bug.</p></div>
+<div class="gotcha"><p><span class="claim">"A pointer that's one bit too narrow just wraps around harmlessly."</span><br><span class="fix">It silently breaks full/empty detection</span> &mdash; the exact same "+1 bit of headroom" rule covered on the Flip-Flops and CBUSY pages applies here: check the true range a signal needs, not what looks wide enough.</p></div>
+
+<h2 id="interview-qa">Interview Q&amp;A</h2>
+<div class="dialogue">
+<p class="interviewer"><span class="who">Interviewer:</span> Design a FIFO. What do you need to track?</p>
+<p class="you"><span class="who">You:</span> A storage array, a write pointer to the next free slot, a read pointer to the oldest item, and full/empty flags derived from comparing them.</p>
+<p class="interviewer"><span class="who">Interviewer:</span> If you just compare the pointers directly, what goes wrong?</p>
+<p class="you"><span class="who">You:</span> Full and empty both show up as the pointers being equal &mdash; with plain N-bit wrapping pointers there's no way to tell them apart.</p>
+<p class="interviewer"><span class="who">Interviewer:</span> How do you fix that?</p>
+<p class="you"><span class="who">You:</span> Widen the pointers by one bit beyond what's needed to address the memory. Empty is the pointers fully equal, including that extra bit; full is the address bits equal but the extra bit different &mdash; meaning write has lapped read exactly once.</p>
+<p class="interviewer"><span class="who">Interviewer:</span> Now: what happens if I assert write and read on the same cycle, and the FIFO is completely full?</p>
+<p class="you"><span class="who">You:</span> It should stay full, correctly &mdash; the pop frees the slot the push needs in that same cycle. If the write is unconditionally blocked whenever <code>full</code> is asserted, that incoming write is lost for no reason. The fix is to allow the write through whenever a same-cycle read is also happening.</p>
+<p class="interviewer"><span class="who">Interviewer:</span> Doesn't that mean the read and write hit the exact same memory address in the same cycle? Is that safe?</p>
+<p class="you"><span class="who">You:</span> Yes to both. When full, the write and read pointers address the same physical slot by construction. It's safe because the memory write is non-blocking &mdash; it doesn't take effect until the end of the clock edge, so the read sees the old data this cycle regardless, and the new data only becomes visible next cycle.</p>
+<p class="interviewer"><span class="who">Interviewer:</span> Same question, but now the FIFO is completely empty.</p>
+<p class="you"><span class="who">You:</span> That one's not automatically safe the same way. The data being written this cycle doesn't exist in memory until the edge completes, so a same-cycle read has nothing to fetch yet &mdash; unless the design explicitly adds a bypass path to forward the write data straight to the read output. Without that bypass, the read just has to wait one more cycle, which is exactly the standard-output-FIFO behavior; with it, you've built the write-side half of a first-word-fall-through FIFO.</p>
+</div>
+
+<h2 id="cheatsheet">Cheat sheet</h2>
+<div class="cheatbox">
+<ul>
+<li><strong>Push:</strong> <code>wr_en &amp;&amp; !full</code>. <strong>Pop:</strong> <code>rd_en &amp;&amp; !empty</code> &mdash; the baseline, before edge cases.</li>
+<li><strong>Full/empty ambiguity:</strong> plain N-bit pointers can't distinguish full from empty &mdash; both look like <code>wr_ptr==rd_ptr</code>.</li>
+<li><strong>Standard fix:</strong> (N+1)-bit pointers. Empty = fully equal (incl. top bit). Full = address bits equal, top bit differs.</li>
+<li><strong>Simultaneous R/W while FULL:</strong> safe and should be allowed &mdash; <code>wr_act = wr_en &amp;&amp; (!full || rd_act)</code>. Relies on non-blocking writes so same-cycle, same-address reads still see old data.</li>
+<li><strong>Simultaneous R/W while EMPTY:</strong> not symmetric &mdash; a read cannot see same-cycle write data without an explicit bypass (FWFT) path.</li>
+<li><strong>FWFT:</strong> data visible before any read request; <code>rd_en</code> means "advance," not "request." Standard: data appears one cycle after <code>rd_en</code>; means "request."</li>
+<li><strong>Depth must be a power of two</strong> for the extra-bit trick; otherwise use explicit magnitude comparison.</li>
+<li><strong>Async FIFO:</strong> needs Gray-coded pointers across the clock boundary &mdash; binary pointers can present a glitchy multi-bit value to an asynchronous sampler.</li>
+<li>FIFO vs. LIFO: two pointers/two ends vs. one pointer/one end.</li>
+</ul>
+</div>
+
+</main>
+
+<footer class="site-footer">
+  <a href="../index.html">&larr; All topics</a> &middot; <a href="https://github.com/bubismark/logic-desgin-interview-prep">source on GitHub</a>
+</footer>
+
+</body>
+</html>

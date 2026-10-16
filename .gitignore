@@ -1,0 +1,6 @@
+# Raw source files used as reference material for the "Done projects" write-ups.
+# These may carry employer-confidential headers and must never be committed —
+# only the genericized write-ups under done-projects/ get published.
+*.v
+*.vh
+/cbusy/

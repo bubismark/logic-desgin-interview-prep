@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flip-Flops: Every Type, From Gates Up &mdash; Logic Design Interview Prep</title>
+<meta name="description" content="Every flip-flop and latch type from the logic-gate level up: SR latch, D latch, master-slave construction, the edge-triggered D flip-flop, SR/JK/T flip-flops, reset styles, metastability, and where latches are still used on purpose today.">
+<link rel="stylesheet" href="../assets/style.css">
+<style>
+  :root{
+    --bg:#faf8f5; --surface:#ffffff; --ink:#20211f; --sub:#5b5d58;
+    --line:#c9c4ba; --grid:#e7e2d8;
+    --accent:#b5502f;
+    --accent2:#2f6b5e;
+    --code-bg:#f0ede6; --code-ink:#2a2b28;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#1b1c19; --surface:#232420; --ink:#ece9e2; --sub:#a8a89f;
+      --line:#4a4b45; --grid:#33342f;
+      --accent:#e08a63; --accent2:#6fbfa8;
+      --code-bg:#2a2b26; --code-ink:#e5e2da;
+      color-scheme:dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#1b1c19; --surface:#232420; --ink:#ece9e2; --sub:#a8a89f;
+    --line:#4a4b45; --grid:#33342f;
+    --accent:#e08a63; --accent2:#6fbfa8;
+    --code-bg:#2a2b26; --code-ink:#e5e2da;
+    color-scheme:dark;
+  }
+  *{box-sizing:border-box}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:"Source Sans 3", Arial, sans-serif;
+    padding-inline:16px; padding-block:32px;
+    max-width:980px; margin-inline:auto;
+    line-height:1.55;
+  }
+  h1,h2,h3{font-family:"Fraunces","Georgia",serif; font-weight:600; text-wrap:balance}
+  h1{font-size:1.9rem; margin-bottom:.2em}
+  .kicker{color:var(--sub); font-size:.95rem; margin-bottom:2em}
+  h2{font-size:1.35rem; margin-top:2.6em; border-top:1px solid var(--line); padding-top:1em}
+  h3{font-size:1.08rem; margin:1.6em 0 .3em}
+  p{max-width:72ch}
+  code, pre{font-family:"IBM Plex Mono","SF Mono",monospace}
+  code{background:var(--code-bg); color:var(--code-ink); padding:.1em .35em; border-radius:4px; font-size:.9em}
+
+  .toc{font-size:.85rem; color:var(--sub); margin-bottom:2em; display:flex; flex-wrap:wrap; gap:.3em .6em}
+  .toc a{color:var(--sub); text-decoration:underline; text-underline-offset:2px}
+  .toc a:hover{color:var(--ink)}
+  .toc span.sep{opacity:.5}
+
+  .steps{display:grid; gap:14px; margin-top:1em}
+  .step{display:grid; grid-template-columns:2.4em 1fr; gap:14px; min-width:0}
+  .step .num{font-family:"Fraunces",serif; font-size:1.3rem; color:var(--sub); line-height:1; padding-top:.1em}
+  .step p{margin:0; max-width:64ch}
+  .step h3{margin:0 0 .2em}
+
+  .card{background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:18px; min-width:0}
+  .cols{display:grid; grid-template-columns:1fr 1fr; gap:18px; align-items:start; margin-top:1em}
+  @media (max-width:760px){ .cols{grid-template-columns:1fr} }
+
+  figure{margin:1.4em 0}
+  figcaption{font-size:.85rem; color:var(--sub); margin-top:.6em; max-width:72ch}
+  svg text{fill:currentColor; font-family:"IBM Plex Mono","SF Mono",monospace}
+
+  table{border-collapse:collapse; width:100%; font-size:.9rem; margin-top:.8em}
+  th,td{border:1px solid var(--line); padding:.4em .55em; text-align:center}
+  th{background:var(--code-bg); font-weight:600}
+  .tablewrap{overflow-x:auto}
+
+  .callout{border-left:3px solid var(--accent); padding:.2em 1em; margin:1.4em 0; color:var(--sub); font-size:.95rem; max-width:72ch}
+  .callout strong{color:var(--ink)}
+
+  .gotcha{border:1px solid var(--line); border-radius:10px; padding:16px 20px; margin:1.2em 0; background:var(--surface)}
+  .gotcha .claim{color:var(--accent); font-weight:600}
+  .gotcha .fix{color:var(--accent2); font-weight:600}
+
+  .cheatbox{border:1px solid var(--line); border-radius:10px; padding:20px 22px; background:var(--surface); margin-top:1em}
+  .cheatbox h3{margin-top:0}
+
+  .diagram-scroll{overflow-x:auto}
+</style>
+</head>
+<body>
+
+<nav class="site-nav">
+  <a href="../index.html">Logic Design Interview Prep</a><span class="crumb-sep">/</span><span>Flip-Flops</span>
+</nav>
+
+<main>
+
+<h1>Flip-flops and latches: every type, from gates up</h1>
+<p class="kicker">Every memory element used in digital design builds on the same handful of ideas, stacked on top of each other: two gates wired back into each other to make the first bistable element, a trick to remove its one illegal input combination, a second copy of it to turn "follows the input continuously" into "samples the input at one precise instant," and a small amount of extra logic in front of that to get every other flip-flop type you'll ever be asked about. Build it in that order and nothing here needs to be memorized &mdash; it can all be re-derived.</p>
+
+<nav class="toc" aria-label="Page sections">
+<a href="#why">Why memory at all</a><span class="sep">&middot;</span><a href="#sr-latch">SR latch</a><span class="sep">&middot;</span><a href="#d-latch">D latch</a><span class="sep">&middot;</span><a href="#master-slave">Master-slave</a><span class="sep">&middot;</span><a href="#d-ff">The D flip-flop</a><span class="sep">&middot;</span><a href="#latch-vs-ff">Latch vs. flip-flop</a><span class="sep">&middot;</span><a href="#sr-ff">SR flip-flop</a><span class="sep">&middot;</span><a href="#jk-ff">JK flip-flop</a><span class="sep">&middot;</span><a href="#t-ff">T flip-flop</a><span class="sep">&middot;</span><a href="#reset">Reset styles</a><span class="sep">&middot;</span><a href="#metastability">Metastability</a><span class="sep">&middot;</span><a href="#latches-today">Latches, used on purpose</a><span class="sep">&middot;</span><a href="#summary">Summary table</a><span class="sep">&middot;</span><a href="#gotchas">Gotchas</a><span class="sep">&middot;</span><a href="#cheatsheet">Cheat sheet</a>
+</nav>
+
+<h2 id="why">Why we need memory at all</h2>
+<p>A plain logic gate (AND, OR, NOR, whatever) has <strong>no memory</strong>: the instant its inputs change, its output changes too, and the moment the inputs go away, so does any trace that they ever happened. That's fine for computing a function of "right now," but completely useless for anything that needs to remember &mdash; a counter, a state machine, a register holding last cycle's result. You need a circuit whose output can stay the same even after the inputs that caused it have changed or disappeared. That circuit is called <strong>bistable</strong>: it has exactly two stable resting states, and once it lands in one, it stays there until deliberately pushed into the other. Every flip-flop and latch on this page is a different way of building, taming, and improving on that one idea.</p>
+
+<h2 id="sr-latch">The SR latch &mdash; the first bistable element</h2>
+<p>Take two NOR gates. Feed the output of each one back into an input of the other. That's the entire circuit.</p>
+<figure class="diagram-scroll">
+<svg viewBox="0 0 420 230" role="img" aria-label="Two standard NOR gate symbols, cross-coupled: the top NOR gate takes inputs S and a feedback line from the bottom gate's output, and produces Q-bar. The bottom NOR gate takes inputs R and a feedback line from the top gate's output, and produces Q. The feedback wires route around the outside of both gates to reach the correct input pins without crossing either gate body.">
+  <defs><marker id="ffA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+
+  <g transform="translate(200,30)">
+    <path d="M0,0 Q18,23 0,46 Q42,46 70,23 Q42,0 0,0 Z" fill="none" stroke="currentColor" stroke-width="2"/>
+    <circle cx="77" cy="23" r="6" fill="none" stroke="currentColor" stroke-width="2"/>
+    <text x="30" y="27" font-size="10" fill="var(--sub)">NOR</text>
+  </g>
+  <g transform="translate(200,170)">
+    <path d="M0,0 Q18,23 0,46 Q42,46 70,23 Q42,0 0,0 Z" fill="none" stroke="currentColor" stroke-width="2"/>
+    <circle cx="77" cy="23" r="6" fill="none" stroke="currentColor" stroke-width="2"/>
+    <text x="30" y="27" font-size="10" fill="var(--sub)">NOR</text>
+  </g>
+
+  <line x1="40" y1="41.5" x2="206" y2="41.5" stroke="currentColor" stroke-width="1.5" marker-end="url(#ffA)"/>
+  <text x="20" y="46" font-size="13">S</text>
+  <line x1="40" y1="204.5" x2="206" y2="204.5" stroke="currentColor" stroke-width="1.5" marker-end="url(#ffA)"/>
+  <text x="20" y="209" font-size="13">R</text>
+
+  <line x1="284" y1="53" x2="320" y2="53" stroke="currentColor" stroke-width="1.5" marker-end="url(#ffA)"/>
+  <text x="326" y="58" font-size="13">Q&#772;</text>
+  <line x1="284" y1="193" x2="320" y2="193" stroke="currentColor" stroke-width="1.5" marker-end="url(#ffA)"/>
+  <text x="326" y="198" font-size="13">Q</text>
+
+  <path d="M284,53 H340 V140 H90 V181.5 H206" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#ffA)"/>
+  <text x="95" y="132" font-size="10" fill="var(--accent)">Q&#772; feeds the other gate</text>
+
+  <path d="M284,193 H360 V15 H120 V64.5 H206" fill="none" stroke="var(--accent2)" stroke-width="1.5" marker-end="url(#ffA)"/>
+  <text x="125" y="78" font-size="10" fill="var(--accent2)">Q feeds the other gate</text>
+</svg>
+<figcaption>Standard NOR symbol: OR body (concave back, pointed front) plus a bubble on the output for the inversion. Top gate: inputs are <code>S</code> and <code>Q</code> (fed back); output is <code>Q&#772;</code>. Bottom gate: inputs are <code>R</code> and <code>Q&#772;</code> (fed back); output is <code>Q</code>. The two bubbled outputs are each other's missing input &mdash; that closed loop is the entire memory mechanism. No clock anywhere yet.</figcaption>
+</figure>
+<div class="tablewrap">
+<table>
+<tr><th>S</th><th>R</th><th>Q (next)</th><th>what happens</th></tr>
+<tr><td>0</td><td>0</td><td>unchanged</td><td><strong>hold</strong> &mdash; whatever Q was, it stays, because Q feeds back into the gate that helps define Q&#772;, and vice versa</td></tr>
+<tr><td>1</td><td>0</td><td>1</td><td><strong>set</strong></td></tr>
+<tr><td>0</td><td>1</td><td>0</td><td><strong>reset</strong></td></tr>
+<tr><td>1</td><td>1</td><td style="color:var(--accent)">invalid</td><td>forces both <code>Q</code> and <code>Q&#772;</code> to 0 &mdash; they're supposed to always be opposites, so this isn't a real state at all</td></tr>
+</table>
+</div>
+<div class="callout"><strong>The forbidden state, worked out in plain English:</strong> with S=1, both of the bottom gate's possible outputs don't matter &mdash; <code>NOR(1, anything)</code> is always 0, so Q&#772;=0. With R=1, the same logic forces Q=0. Now both outputs are 0 at once, which should be impossible (they're wired to always be opposites). The real danger shows up when S and R <em>both</em> return to 0 at the same instant: the circuit has to "decide" which gate wins the race back to a valid state, and that decision comes down to microscopic, unpredictable differences in gate delay &mdash; the result is indeterminate. This single illegal combination is the entire reason every flip-flop built from this point forward goes out of its way to make it structurally impossible to apply S=1 and R=1 simultaneously.</div>
+
+<h2 id="d-latch">The gated D latch &mdash; removing the illegal state</h2>
+<p>The fix: never let a circuit generate S=1 and R=1 at the same time in the first place. Take one input, <code>D</code>, invert it to get <code>D&#772;</code>, and gate both of them with an enable signal <code>EN</code> before they ever reach the SR latch's inputs.</p>
+<figure class="diagram-scroll">
+<svg viewBox="0 0 540 220" role="img" aria-label="D feeds directly into one AND gate and through an inverter into a second AND gate. Enable feeds both AND gates. The first AND gate's output drives S on an SR latch block; the second AND gate's output drives R. The SR latch outputs Q and Q-bar.">
+  <defs><marker id="ffB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+
+  <text x="10" y="35" font-size="13">D</text>
+  <line x1="22" y1="31.5" x2="226" y2="31.5" stroke="currentColor" stroke-width="1.5" marker-end="url(#ffB)"/>
+  <line x1="140" y1="31.5" x2="140" y2="103" stroke="currentColor" stroke-width="1.5"/>
+  <line x1="140" y1="103" x2="110" y2="103" stroke="currentColor" stroke-width="1.5" marker-end="url(#ffB)"/>
+  <g transform="translate(110,80)">
+    <path d="M0,0 L0,46 L55,23 Z" fill="none" stroke="currentColor" stroke-width="2"/>
+    <circle cx="61" cy="23" r="6" fill="none" stroke="currentColor" stroke-width="2"/>
+    <text x="18" y="27" font-size="9" fill="var(--sub)">NOT</text>
+  </g>
+  <path d="M177,103 H200 V131.5 H226" fill="none" stroke="currentColor" stroke-width="1.5" marker-end="url(#ffB)"/>
+
+  <g transform="translate(220,20)">
+    <path d="M0,0 H47 A23,23 0 0 1 47,46 H0 Z" fill="none" stroke="var(--accent)" stroke-width="2"/>
+    <text x="14" y="27" font-size="10" fill="var(--accent)">AND</text>
+  </g>
+  <g transform="translate(220,120)">
+    <path d="M0,0 H47 A23,23 0 0 1 47,46 H0 Z" fill="none" stroke="var(--accent2)" stroke-width="2"/>
+    <text x="14" y="27" font-size="10" fill="var(--accent2)">AND</text>
+  </g>
+
+  <text x="10" y="184" font-size="13">EN</text>
+  <line x1="24" y1="180" x2="70" y2="180" stroke="currentColor" stroke-width="1.5"/>
+  <line x1="70" y1="180" x2="70" y2="54.5" stroke="currentColor" stroke-width="1.5"/>
+  <line x1="70" y1="54.5" x2="226" y2="54.5" stroke="currentColor" stroke-width="1.5" marker-end="url(#ffB)"/>
+  <line x1="70" y1="154.5" x2="226" y2="154.5" stroke="currentColor" stroke-width="1.5" marker-end="url(#ffB)"/>
+
+  <line x1="290" y1="43" x2="330" y2="43" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#ffB)"/>
+  <line x1="290" y1="143" x2="330" y2="143" stroke="var(--accent2)" stroke-width="1.5" marker-end="url(#ffB)"/>
+
+  <rect x="330" y="20" width="130" height="150" rx="6" fill="none" stroke="currentColor" stroke-width="2"/>
+  <text x="395" y="90" text-anchor="middle" font-size="13">SR LATCH</text>
+  <text x="395" y="108" text-anchor="middle" font-size="10" fill="var(--sub)">(previous diagram)</text>
+  <text x="338" y="38" fill="var(--accent)" font-size="11">S</text>
+  <text x="338" y="148" fill="var(--accent2)" font-size="11">R</text>
+
+  <line x1="460" y1="55" x2="500" y2="55" stroke="currentColor" stroke-width="1.5" marker-end="url(#ffB)"/>
+  <text x="508" y="60" font-size="13">Q</text>
+  <line x1="460" y1="150" x2="500" y2="150" stroke="currentColor" stroke-width="1.5" marker-end="url(#ffB)"/>
+  <text x="508" y="155" font-size="13">Q&#772;</text>
+</svg>
+<figcaption>When EN=0, both AND gates output 0 regardless of D &mdash; S=R=0, the SR latch's "hold" input, so the latch just remembers its last value. When EN=1: if D=1, the top AND passes it through (S=1) while the bottom AND is blocked by D&#772;=0 (R=0) &mdash; a clean set. If D=0, it's the mirror image &mdash; a clean reset. <strong>S and R can never both be 1</strong>, by construction &mdash; the illegal state has been designed out entirely, not just avoided by careful use.</figcaption>
+</figure>
+<div class="tablewrap">
+<table>
+<tr><th>EN</th><th>D</th><th>Q (next)</th></tr>
+<tr><td>0</td><td>x (don't care)</td><td>unchanged &mdash; holds</td></tr>
+<tr><td>1</td><td>0</td><td>0</td></tr>
+<tr><td>1</td><td>1</td><td>1</td></tr>
+</table>
+</div>
+<p>This is called a <strong>latch</strong> specifically because of that EN=1 behavior: while enabled, <code>Q</code> doesn't just eventually reach <code>D</code> &mdash; it <strong>continuously tracks</strong> it, instantly, for as long as EN stays high. It's "transparent." That word is going to matter a lot in a moment.</p>
+
+<h2 id="master-slave">Master-slave &mdash; turning "transparent" into "an instant"</h2>
+<p>A latch updates throughout its entire enable window &mdash; that's a problem for building a clock-synchronous system, where you want something to update at one precise moment, not over some fuzzy stretch of time. The fix is almost cheeky: chain <strong>two</strong> D latches, and drive their enables with opposite phases of the clock.</p>
+<figure class="diagram-scroll">
+<svg viewBox="0 0 660 190" role="img" aria-label="D feeds a master D latch whose enable is the inverted clock. The master's output Qm feeds a slave D latch whose enable is the clock directly. The slave's output is Q.">
+  <defs><marker id="ffC" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+  <text x="10" y="55" font-size="13">D</text>
+  <line x1="25" y1="50" x2="78" y2="50" stroke="currentColor" stroke-width="1.5" marker-end="url(#ffC)"/>
+  <rect x="80" y="20" width="140" height="70" rx="6" fill="none" stroke="var(--accent)" stroke-width="2"/>
+  <text x="150" y="55" text-anchor="middle" fill="var(--accent)" font-size="12">MASTER D latch</text>
+  <text x="150" y="75" text-anchor="middle" font-size="10" fill="var(--sub)">EN = clk&#772; (transparent while clk=0)</text>
+
+  <line x1="220" y1="55" x2="298" y2="55" stroke="currentColor" stroke-width="1.5" marker-end="url(#ffC)"/>
+  <text x="250" y="48" font-size="10" fill="var(--sub)">Qm</text>
+  <rect x="300" y="20" width="140" height="70" rx="6" fill="none" stroke="var(--accent2)" stroke-width="2"/>
+  <text x="370" y="55" text-anchor="middle" fill="var(--accent2)" font-size="12">SLAVE D latch</text>
+  <text x="370" y="75" text-anchor="middle" font-size="10" fill="var(--sub)">EN = clk (transparent while clk=1)</text>
+
+  <line x1="440" y1="55" x2="500" y2="55" stroke="currentColor" stroke-width="1.5" marker-end="url(#ffC)"/>
+  <text x="510" y="60" font-size="13">Q</text>
+
+  <text x="10" y="150" font-size="13">clk</text>
+  <line x1="30" y1="145" x2="370" y2="145" stroke="currentColor" stroke-width="1.5"/>
+  <line x1="370" y1="145" x2="370" y2="92" stroke="currentColor" stroke-width="1.5" marker-end="url(#ffC)"/>
+  <line x1="30" y1="145" x2="100" y2="145" stroke="currentColor" stroke-width="1.5"/>
+  <g transform="translate(100,127)">
+    <path d="M0,0 L0,36 L44,18 Z" fill="none" stroke="currentColor" stroke-width="1.5"/>
+    <circle cx="49" cy="18" r="5" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  </g>
+  <line x1="154" y1="145" x2="150" y2="92" stroke="currentColor" stroke-width="1.5" marker-end="url(#ffC)"/>
+</svg>
+<figcaption><strong>While clk=0:</strong> master is transparent (tracks D), slave is opaque (holds its last value) &mdash; Q doesn't move. <strong>While clk=1:</strong> master freezes &mdash; it's now holding whatever D was at the instant clk rose &mdash; and the slave, now transparent, passes that frozen value through to Q. Net effect: <strong>Q changes exactly once per clock cycle</strong>, taking on the value D had at the rising edge. Two transparent (sloppy) elements, combined with opposite timing, produce one element that behaves as if it only looked at a single instant.</figcaption>
+</figure>
+
+<h2 id="d-ff">The edge-triggered D flip-flop</h2>
+<p>That master-slave pair <em>is</em> a positive-edge-triggered D flip-flop &mdash; the one thing every piece of RTL on this entire site is built from (<code>always_ff @(posedge clk)</code>). Real standard-cell libraries implement it more efficiently at the transistor level than two literal latches, but functionally it's the exact circuit above.</p>
+<div class="tablewrap">
+<table>
+<tr><th>Input</th><th>Q (next)</th><th>When</th></tr>
+<tr><td>D</td><td>= D</td><td>only at the rising clock edge &mdash; completely ignored every other moment</td></tr>
+</table>
+</div>
+<p>Three timing numbers define exactly how it behaves around that edge, and an interviewer will expect you to know all three cold:</p>
+<figure class="diagram-scroll">
+<svg viewBox="0 0 700 220" width="700" role="img" aria-label="Timing diagram: a clock rising edge in the middle. D must be stable for a setup-time window before the edge and a hold-time window after the edge. Q holds its old value until clock-to-Q delay after the edge, then transitions to the new value.">
+  <line x1="40" y1="30" x2="40" y2="200" stroke="var(--grid)" stroke-width="1"/>
+  <line x1="350" y1="30" x2="350" y2="200" stroke="var(--accent)" stroke-width="1.5"/>
+  <text x="350" y="20" text-anchor="middle" font-size="11" fill="var(--accent)">rising edge</text>
+
+  <text x="10" y="55" font-size="12">clk</text>
+  <path d="M40,65 H330 V40 H370 V65 H660" fill="none" stroke="currentColor" stroke-width="2"/>
+
+  <text x="10" y="110" font-size="12">D</text>
+  <rect x="270" y="90" width="160" height="30" fill="var(--accent)" fill-opacity=".15" stroke="var(--accent)" stroke-width="1" stroke-dasharray="3 3"/>
+  <line x1="40" y1="105" x2="660" y2="105" stroke="currentColor" stroke-width="2"/>
+  <text x="300" y="135" font-size="10" fill="var(--accent)">t_setup &rarr;</text>
+  <text x="380" y="135" font-size="10" fill="var(--accent)">&larr; t_hold</text>
+
+  <text x="10" y="170" font-size="12">Q</text>
+  <path d="M40,165 H370" stroke="currentColor" stroke-width="2" fill="none"/>
+  <path d="M370,165 V185 H660" stroke="var(--accent2)" stroke-width="2" fill="none"/>
+  <line x1="350" y1="178" x2="370" y2="178" stroke="var(--accent2)" stroke-width="1.5"/>
+  <text x="375" y="155" font-size="10" fill="var(--accent2)">t_clk-to-Q</text>
+</svg>
+<figcaption><strong>t_setup:</strong> how long D must already be stable <em>before</em> the edge. <strong>t_hold:</strong> how long D must stay stable <em>after</em> the edge. <strong>t_clk-to-Q:</strong> how long Q takes to reflect the new value <em>after</em> the edge. Violate setup or hold and you're not guaranteed a wrong-but-clean answer &mdash; see "Metastability" below.</figcaption>
+</figure>
+
+<h2 id="latch-vs-ff">Latch vs. flip-flop &mdash; the comparison an interviewer always wants said out loud</h2>
+<div class="tablewrap">
+<table>
+<tr><th></th><th>Latch</th><th>Flip-flop</th></tr>
+<tr><td>Updates</td><td>continuously, whenever enabled ("transparent")</td><td>only at one clock edge</td></tr>
+<tr><td>Timing analysis</td><td>harder &mdash; allows "time borrowing" across phases, a real but advanced technique</td><td>simple, standard model every STA tool assumes by default</td></tr>
+<tr><td>Area / power</td><td>smaller, fewer transistors</td><td>larger &mdash; it's built from two latches</td></tr>
+<tr><td>Default choice for synchronous RTL</td><td>no</td><td>yes, almost always</td></tr>
+</table>
+</div>
+<p>This is also exactly why <strong>accidentally inferring a latch</strong> (an <code>if</code> with no <code>else</code>, a <code>case</code> missing a default, inside a combinational always-block) is a classic lint error: the synthesis tool sees a signal that must "remember" something across an incomplete condition and is forced to insert a transparent latch to do it &mdash; almost never what the author intended, and a well-known interview trap in its own right.</p>
+
+<h2 id="sr-ff">SR flip-flop</h2>
+<p>Edge-triggered version of the SR latch &mdash; conceptually complete, but you'll essentially never use one directly in modern RTL. It's covered here only because "what's the difference between this and a D flip-flop" is a fair interview question.</p>
+<div class="tablewrap">
+<table>
+<tr><th>S</th><th>K</th><th>Q (next), at the edge</th></tr>
+<tr><td>0</td><td>0</td><td>hold</td></tr>
+<tr><td>1</td><td>0</td><td>1 (set)</td></tr>
+<tr><td>0</td><td>1</td><td>0 (reset)</td></tr>
+<tr><td>1</td><td>1</td><td style="color:var(--accent)">invalid &mdash; same forbidden state as the SR latch, just now sampled at an edge instead of held open</td></tr>
+</table>
+</div>
+<p>It still carries the SR latch's one real flaw forward. D solved that flaw by construction; the next two types solve it a different way.</p>
+
+<h2 id="jk-ff">JK flip-flop</h2>
+<p>JK fixes the SR forbidden state by turning it into something useful: when both inputs are asserted, instead of an illegal state, the output <strong>toggles</strong>.</p>
+<div class="tablewrap">
+<table>
+<tr><th>J</th><th>K</th><th>Q (next)</th></tr>
+<tr><td>0</td><td>0</td><td>hold</td></tr>
+<tr><td>1</td><td>0</td><td>1 (set)</td></tr>
+<tr><td>0</td><td>1</td><td>0 (reset)</td></tr>
+<tr><td>1</td><td>1</td><td style="color:var(--accent2)">toggle &mdash; the exact case that was illegal for SR</td></tr>
+</table>
+</div>
+<p><strong>The modern way to build one:</strong> you don't reinvent a new storage element &mdash; you take a plain D flip-flop and put a little combinational logic in front of it that folds J, K and the <em>current</em> Q together: <code>D = (J &amp;&amp; !Q) || (!K &amp;&amp; Q)</code>.</p>
+<figure class="diagram-scroll">
+<svg viewBox="0 0 560 170" role="img" aria-label="A small combinational block computes D equals J and not Q, or not K and Q, using J, K, and the flip-flop's own fed-back output Q as inputs. That D feeds a standard D flip-flop, whose output Q is fed back into the combinational block.">
+  <defs><marker id="ffD" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+  <text x="10" y="40" font-size="12">J</text>
+  <text x="10" y="70" font-size="12">K</text>
+  <line x1="25" y1="35" x2="118" y2="35" stroke="currentColor" stroke-width="1.5" marker-end="url(#ffD)"/>
+  <line x1="25" y1="65" x2="118" y2="65" stroke="currentColor" stroke-width="1.5" marker-end="url(#ffD)"/>
+  <rect x="120" y="15" width="160" height="90" rx="6" fill="none" stroke="var(--accent)" stroke-width="2"/>
+  <text x="200" y="55" text-anchor="middle" fill="var(--accent)" font-size="11">D = (J &amp;&amp; !Q)</text>
+  <text x="200" y="72" text-anchor="middle" fill="var(--accent)" font-size="11">|| (!K &amp;&amp; Q)</text>
+
+  <line x1="280" y1="60" x2="340" y2="60" stroke="currentColor" stroke-width="1.5" marker-end="url(#ffD)"/>
+  <rect x="340" y="30" width="110" height="60" rx="6" fill="none" stroke="currentColor" stroke-width="2"/>
+  <text x="395" y="65" text-anchor="middle" font-size="13">D-FF</text>
+  <line x1="450" y1="60" x2="510" y2="60" stroke="var(--accent2)" stroke-width="2" marker-end="url(#ffD)"/>
+  <text x="520" y="65" font-size="13">Q</text>
+
+  <path d="M480,60 V140 H200 V107" fill="none" stroke="var(--accent2)" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#ffD)"/>
+  <text x="300" y="155" text-anchor="middle" font-size="10" fill="var(--sub)">Q fed back into the combinational logic</text>
+</svg>
+<figcaption>Verify J=K=1: D = (1 &amp;&amp; !Q) || (0 &amp;&amp; Q) = !Q &mdash; D is always the opposite of the current Q, so the next clock edge always flips it. Toggle, confirmed, with ordinary logic.</figcaption>
+</figure>
+<div class="callout"><strong>The classic version, and its gotcha:</strong> before standard-cell D flip-flops were universal, discrete JK chips (the 7473/7476 family) built this directly as a master-slave pair of NAND gates, with the feedback for J/K coming from the <em>slave's stable outputs</em> rather than through a separate D-style combinational block. That design was notoriously sensitive to a problem called <strong>"1s catching"</strong> (or "ones-and-zeros catching"): because the master stage is level-sensitive for the full duration the clock is on that phase, any brief glitch on J or K during that whole window &mdash; not just at a clean edge &mdash; could get latched and corrupt the output. Modern edge-triggered designs (true pulse-triggered internal structures, or the D-flip-flop-plus-logic version above) don't have this failure mode, which is a large part of why JK flip-flops have essentially disappeared from modern ASIC design even though they're still taught everywhere.</div>
+
+<h2 id="t-ff">T flip-flop</h2>
+<p>Toggle flip-flop: holds when T=0, toggles when T=1. Built the same way as JK above, just simpler &mdash; a single XOR gate instead of the J/K combinational block.</p>
+<div class="tablewrap">
+<table>
+<tr><th>T</th><th>Q (next)</th></tr>
+<tr><td>0</td><td>hold</td></tr>
+<tr><td>1</td><td>toggle</td></tr>
+</table>
+</div>
+<figure class="diagram-scroll">
+<svg viewBox="0 0 460 150" role="img" aria-label="A standard XOR gate symbol takes T and the flip-flop's fed-back output Q, producing D, which feeds a D flip-flop whose output is Q.">
+  <defs><marker id="ffE" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+
+  <text x="10" y="42" font-size="12">T</text>
+  <line x1="22" y1="38.5" x2="136" y2="38.5" stroke="currentColor" stroke-width="1.5" marker-end="url(#ffE)"/>
+
+  <g transform="translate(130,27)">
+    <path d="M-12,0 Q6,23 -12,46" fill="none" stroke="currentColor" stroke-width="2"/>
+    <path d="M0,0 Q18,23 0,46 Q42,46 70,23 Q42,0 0,0 Z" fill="none" stroke="var(--accent)" stroke-width="2"/>
+    <text x="22" y="27" font-size="9" fill="var(--accent)">XOR</text>
+  </g>
+
+  <line x1="200" y1="50" x2="260" y2="50" stroke="currentColor" stroke-width="1.5" marker-end="url(#ffE)"/>
+  <rect x="260" y="20" width="100" height="60" rx="6" fill="none" stroke="currentColor" stroke-width="2"/>
+  <text x="310" y="55" text-anchor="middle" font-size="13">D-FF</text>
+  <line x1="360" y1="50" x2="410" y2="50" stroke="var(--accent2)" stroke-width="2" marker-end="url(#ffE)"/>
+  <text x="420" y="55" font-size="13">Q</text>
+  <path d="M390,50 V110 H136 V61.5" fill="none" stroke="var(--accent2)" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#ffE)"/>
+</svg>
+<figcaption>Chain N of these with T tied permanently to 1 and you've built a ripple counter: each stage toggles at half the frequency of the one before it. This is the standard mechanism behind clock dividers and simple binary counters.</figcaption>
+</figure>
+
+<h2 id="reset">Reset styles: asynchronous vs. synchronous</h2>
+<div class="cols">
+<div class="card">
+<h3>Asynchronous reset</h3>
+<p>A dedicated reset port on the flip-flop itself forces Q to a known value <strong>immediately</strong>, with no dependence on the clock at all &mdash; it works even if the clock has stopped. The catch: the moment reset <em>releases</em> matters just as much as when it asserts. If it de-asserts asynchronously, close to a clock edge, different flip-flops across the chip can sample that release on different cycles &mdash; a classic, nasty bug. The standard fix is "assert async, release sync": a small synchronizer that lets reset slam on instantly but only lets it lift in lock-step with the clock.</p>
+</div>
+<div class="card">
+<h3>Synchronous reset</h3>
+<p>Reset is just another input muxed in front of D, and only takes effect on a clock edge &mdash; immune to glitches on the reset line (ordinary setup/hold timing filters it, same as any other data signal), but it does nothing if the clock isn't toggling, and it costs one more gate (the mux) sitting in the data path on every single flop.</p>
+</div>
+</div>
+<figure class="diagram-scroll">
+<svg viewBox="0 0 640 170" role="img" aria-label="Asynchronous reset wired directly into a dedicated reset port on the flip-flop, bypassing the clock entirely. Synchronous reset instead feeds a multiplexer in front of the flip-flop's D input, selecting between the real data and a fixed reset value, with the selection only taking effect at the next clock edge.">
+  <rect x="20" y="20" width="110" height="60" rx="6" fill="none" stroke="currentColor" stroke-width="2"/>
+  <text x="75" y="55" text-anchor="middle" font-size="12">D-FF</text>
+  <line x1="75" y1="80" x2="75" y2="110" stroke="var(--accent)" stroke-width="2"/>
+  <text x="75" y="128" text-anchor="middle" font-size="11" fill="var(--accent)">async rst_n</text>
+  <text x="75" y="10" text-anchor="middle" font-size="11" fill="var(--sub)">forces Q now, bypasses clk</text>
+
+  <rect x="340" y="40" width="70" height="40" rx="4" fill="none" stroke="var(--accent2)" stroke-width="2"/>
+  <text x="375" y="65" text-anchor="middle" fill="var(--accent2)" font-size="11">MUX</text>
+  <rect x="440" y="20" width="110" height="60" rx="6" fill="none" stroke="currentColor" stroke-width="2"/>
+  <text x="495" y="55" text-anchor="middle" font-size="12">D-FF</text>
+  <line x1="410" y1="60" x2="438" y2="60" stroke="currentColor" stroke-width="1.5"/>
+  <text x="300" y="45" font-size="10">D</text>
+  <text x="300" y="80" font-size="10">0 (reset value)</text>
+  <text x="375" y="100" text-anchor="middle" font-size="11" fill="var(--accent2)">rst (just a normal select line)</text>
+  <text x="495" y="10" text-anchor="middle" font-size="11" fill="var(--sub)">only updates at the next edge</text>
+</svg>
+</figure>
+
+<h2 id="metastability">Setup/hold violations and metastability</h2>
+<p>A common misread of a setup/hold violation: "the flop just captures the old value or the new value, and you don't know which." The real risk is worse than that. If D changes too close to the clock edge, the internal cross-coupled latch at the heart of the flip-flop can be pushed to a voltage <em>between</em> a valid 0 and a valid 1 &mdash; not simply "wrong," but <strong>undefined</strong>, for an unbounded (though usually very short) amount of time before it randomly resolves to one rail or the other. If that resolution takes too long, the next stage downstream can sample it mid-resolution too, propagating the uncertainty forward. This is exactly why crossing between asynchronous clock domains always needs a proper synchronizer, not just "a flop or two for good luck" &mdash; see the CDC &amp; synchronizers topic on this site for the full treatment.</p>
+
+<h2 id="latches-today">Where latches are still used on purpose</h2>
+<p>"Never use a latch" is a lint-rule simplification, not a law of nature &mdash; latches are smaller and lower-power than flip-flops, and show up deliberately in real designs:</p>
+<div class="cols">
+<div class="card">
+<h3>Integrated clock gating (ICG)</h3>
+<p>Before ANDing an enable signal with the clock to shut off a clock tree branch, the enable is first passed through a latch that's transparent only while the clock is <em>low</em>. This guarantees the gated clock can only ever turn off cleanly (no glitch, no runt pulse) &mdash; a latch used specifically as a glitch filter, not as a register.</p>
+<figure>
+<svg viewBox="0 0 480 130" role="img" aria-label="An enable signal passes through a latch that is transparent only while the clock is low, producing a glitch-free enable. That filtered enable is ANDed with the clock, using a standard AND gate symbol, to produce the gated clock output.">
+  <text x="10" y="35" font-size="11">EN</text>
+  <rect x="40" y="15" width="100" height="40" rx="5" fill="none" stroke="var(--accent)" stroke-width="2"/>
+  <text x="90" y="39" text-anchor="middle" fill="var(--accent)" font-size="10">latch, EN=clk&#772;</text>
+  <line x1="140" y1="35" x2="226" y2="38.5" stroke="currentColor" stroke-width="1.5"/>
+  <text x="10" y="90" font-size="11">clk</text>
+  <line x1="30" y1="85" x2="226" y2="61.5" stroke="currentColor" stroke-width="1.5"/>
+  <g transform="translate(220,27)">
+    <path d="M0,0 H47 A23,23 0 0 1 47,46 H0 Z" fill="none" stroke="currentColor" stroke-width="2"/>
+    <text x="10" y="27" font-size="10">AND</text>
+  </g>
+  <line x1="290" y1="50" x2="330" y2="50" stroke="var(--accent2)" stroke-width="2"/>
+  <text x="340" y="55" font-size="11">gated_clk</text>
+</svg>
+</figure>
+</div>
+<div class="card">
+<h3>Pulsed-latch datapaths</h3>
+<p>Some high-performance, power-sensitive designs replace a chain of full flip-flops with latches plus a shared, narrow clock pulse generator &mdash; fewer transistors per bit, at the cost of a much trickier timing analysis (the whole point of a latch is time-borrowing across phases, and that only stays safe if the pulse width and skew are tightly controlled chip-wide). A specialist technique, not a default.</p>
+</div>
+</div>
+
+<h2 id="summary">Summary table</h2>
+<div class="tablewrap">
+<table>
+<tr><th>Type</th><th>Transparent?</th><th>Built from</th><th>Illegal input?</th><th>Used today</th></tr>
+<tr><td>SR latch</td><td>yes</td><td>2 cross-coupled NOR gates</td><td>yes (S=R=1)</td><td>conceptual building block only</td></tr>
+<tr><td>D latch</td><td>yes</td><td>SR latch + AND&times;2 + NOT</td><td>no</td><td>yes, deliberately &mdash; ICGs, pulsed-latch datapaths</td></tr>
+<tr><td>D flip-flop</td><td>no</td><td>2 D latches, opposite-phase enables</td><td>no</td><td>the default, everywhere</td></tr>
+<tr><td>SR flip-flop</td><td>no</td><td>edge-sampled SR</td><td>yes (S=R=1)</td><td>essentially never in modern RTL</td></tr>
+<tr><td>JK flip-flop</td><td>no</td><td>D-FF + 2-gate feedback logic (modern); NAND master-slave (classic)</td><td>no &mdash; toggles</td><td>rare in ASIC; common in textbooks/legacy logic</td></tr>
+<tr><td>T flip-flop</td><td>no</td><td>D-FF + 1 XOR feedback</td><td>no &mdash; toggles</td><td>counters, clock dividers</td></tr>
+</table>
+</div>
+
+<h2 id="gotchas">Gotchas</h2>
+<div class="gotcha"><p><span class="claim">"A setup/hold violation just gives you the wrong-but-defined value."</span><br><span class="fix">No &mdash; it risks metastability</span>, an indeterminate <em>resolution time</em> at an invalid voltage, which can itself cascade into the next stage's setup window.</p></div>
+<div class="gotcha"><p><span class="claim">"JK and T flip-flops are more efficient primitives than D."</span><br><span class="fix">Backwards in a modern flow</span> &mdash; they're built FROM a D flip-flop plus extra combinational logic, so they're strictly more hardware, not less. The "JK is more powerful" framing is a holdover from discrete-logic eras before standard-cell D-FFs were universal.</p></div>
+<div class="gotcha"><p><span class="claim">"Latches are simply forbidden in good RTL."</span><br><span class="fix">Unintended latch inference is the real anti-pattern</span> (an incomplete <code>if</code>/<code>case</code> in a combinational block) &mdash; latches used deliberately and knowingly (ICGs, pulsed-latch datapaths) are a legitimate, well-understood technique.</p></div>
+<div class="gotcha"><p><span class="claim">"Asynchronous reset is simpler, so it's strictly better."</span><br><span class="fix">Only the assertion is simpler</span> &mdash; the release has to be synchronized, or you risk different flops leaving reset on different cycles.</p></div>
+<div class="gotcha"><p><span class="claim">"The SR latch's forbidden state is just a theoretical curiosity."</span><br><span class="fix">It's the literal reason every other flip-flop in this page exists</span> &mdash; D removes it by construction, JK/T turn it into a useful toggle; nothing here was designed without that one failure mode in mind.</p></div>
+
+<h2 id="cheatsheet">Cheat sheet</h2>
+<div class="cheatbox">
+<ul>
+<li><strong>Bistable</strong> = two stable states, holds one until deliberately pushed to the other &mdash; the whole point of every circuit on this page.</li>
+<li><strong>SR latch</strong>: 2 cross-coupled NOR gates. Forbidden: S=R=1. Fails specifically when both drop to 0 together &mdash; a race.</li>
+<li><strong>D latch</strong>: SR latch + gating logic that makes S and R from D/EN, so S=R=1 becomes structurally impossible. <em>Transparent</em> while EN=1.</li>
+<li><strong>Master-slave</strong>: two D latches, opposite-phase enables &mdash; the standard way to turn "transparent" into "edge-triggered."</li>
+<li><strong>D flip-flop</strong>: the universal default. Three timing numbers to know cold: t_setup, t_hold, t_clk-to-Q.</li>
+<li><strong>JK</strong>: D-FF + <code>D=(J&amp;&amp;!Q)||(!K&amp;&amp;Q)</code>. J=K=1 toggles. Classic discrete version: watch for "1s catching."</li>
+<li><strong>T</strong>: D-FF + one XOR with fed-back Q. T=1 toggles &mdash; the mechanism behind every ripple counter/clock divider.</li>
+<li><strong>Async reset</strong>: instant, clock-independent, but the release needs its own synchronizer. <strong>Sync reset</strong>: glitch-immune, but needs a live clock and a mux in the data path.</li>
+<li><strong>Metastability</strong>: a setup/hold violation risks an indeterminate resolution time at an invalid voltage, not just a wrong value &mdash; this is why CDC needs real synchronizers.</li>
+<li>Latches aren't "bad" &mdash; <em>accidental</em> ones are. Deliberate ones (ICG, pulsed-latch datapaths) are a real, standard technique.</li>
+</ul>
+</div>
+
+</main>
+
+<footer class="site-footer">
+  <a href="../index.html">&larr; All topics</a> &middot; <a href="https://github.com/bubismark/logic-desgin-interview-prep">source on GitHub</a>
+</footer>
+
+</body>
+</html>

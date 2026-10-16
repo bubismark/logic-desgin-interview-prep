@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Done Projects &mdash; Logic Design Interview Prep</title>
+<meta name="description" content="Real exercises solved at work, plus deep-dive study guides, written up so the general technique sticks.">
+<link rel="stylesheet" href="../assets/style.css">
+<style>
+  :root{ --bg:#faf8f5; --ink:#20211f; --sub:#5b5d58; --accent:#b5502f; }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#1b1c19; --ink:#ece9e2; --sub:#a8a89f; --accent:#e08a63; color-scheme:dark; }
+  }
+  body{ margin:0; background:var(--bg); color:var(--ink); font-family:"Source Sans 3", Arial, sans-serif; }
+  main{ max-width:1000px; margin:0 auto; padding:40px 20px 20px; }
+  h1{ font-family:"Fraunces", Georgia, serif; font-size:2.1rem; margin-bottom:.2em; }
+  .lede{ color:var(--sub); max-width:60ch; margin-bottom:2.2em; line-height:1.55; }
+</style>
+</head>
+<body>
+
+<nav class="site-nav">
+  <a href="../index.html">Logic Design Interview Prep</a><span class="crumb-sep">/</span><span>Done projects</span>
+</nav>
+
+<main>
+  <h1>Done projects</h1>
+  <p class="lede">Real problems solved at work, plus deep-dive study guides built the same way &mdash; genericized so each writeup is about the reusable idea, not the specific product it came from.</p>
+
+  <div class="hub-grid">
+
+    <a class="hub-card" href="cbusy/index.html">
+      <h3>CBUSY <span class="badge ready">Ready</span></h3>
+      <p>A 12-bit&times;12-bit multiply that didn't fit in one clock cycle: why wide multiplies blow a timing budget, and the general recipe for chunking + pipelining any N-bit multiply to fit.</p>
+      <div class="links">
+        <a href="cbusy/index.html">Write-up &rarr;</a>
+      </div>
+    </a>
+
+    <a class="hub-card" href="repack/index.html">
+      <h3>Write Repack <span class="badge ready">Ready</span></h3>
+      <p>Merging a stream of narrow bus writes into the fewest possible wide, aligned writes: the accumulate-and-merge datapath, a precompute-once design trick, a real off-by-one bit-width bug, and the FSM that drives it.</p>
+      <div class="links">
+        <a href="repack/index.html">Write-up &rarr;</a>
+      </div>
+    </a>
+
+    <a class="hub-card" href="sliding-window/index.html">
+      <h3>Sliding Window <span class="badge ready">Ready</span></h3>
+      <p>Moving average and sliding max/min, naive to optimal: running sums, RAM circular buffers, the monotonic deque, and the hardware fixes for "one sample pops many entries."</p>
+      <div class="links">
+        <a href="sliding-window/index.html">Study guide &rarr;</a>
+      </div>
+    </a>
+
+  </div>
+</main>
+
+<footer class="site-footer">
+  <a href="../index.html">&larr; All topics</a> &middot; <a href="https://github.com/bubismark/logic-desgin-interview-prep">source on GitHub</a>
+</footer>
+
+</body>
+</html>
