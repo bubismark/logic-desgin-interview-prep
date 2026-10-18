@@ -663,6 +663,57 @@
 <figcaption>4 pipeline stages total: 1 generate stage + 3 reduction levels. Widths climb <strong>9 &rarr; 12 &rarr; 18 &rarr; 24 bits</strong> because neighboring shifts were paired first &mdash; pair distant shifts instead and the early-stage adders would be forced wider than they need to be, for no benefit.</figcaption>
 </figure>
 
+<h3>Why 9 &rarr; 12 &rarr; 18 &rarr; 24, exactly: shift-then-add</h3>
+<p>This isn't the ordinary "add two N-bit numbers, get N+1 bits" rule &mdash; that rule assumes both operands sit at the <em>same</em> bit position, and here they don't. Look at the actual stage-2 combine: <code>sum2[0] &lt;= pp[0] + (pp[1] &lt;&lt; CHUNK_B)</code>. <code>pp[0]</code> is a 9-bit value at bits <code>[8:0]</code>. <code>pp[1]</code> is also 9 bits, but it represents a chunk with weight 2&#179; (it's <code>B1</code>, bits <code>[5:3]</code> of the original operand), so it has to be shifted left by 3 <em>before</em> it means anything &mdash; once shifted, it occupies bits <code>[11:3]</code>. You're not adding two same-position numbers; you're merging two overlapping fields that together span bits <code>[11:0]</code> &mdash; 12 positions, not 10.</p>
+<figure class="diagram-scroll">
+<svg viewBox="0 0 640 260" width="640" role="img" aria-label="Bit-position diagram: pp[0], 9 bits, occupies bit positions 8 down to 0. pp[1] shifted left by 3, also 9 bits, occupies bit positions 11 down to 3, overlapping pp[0] across bits 8 down to 3. The combined result spans all 12 bit positions from 11 down to 0.">
+  <g font-size="11" fill="var(--sub)">
+    <text x="320" y="16" text-anchor="middle">bit 11</text>
+    <text x="380" y="16" text-anchor="middle">bit 8</text>
+    <text x="500" y="16" text-anchor="middle">bit 3</text>
+    <text x="560" y="16" text-anchor="middle">bit 0</text>
+  </g>
+  <g stroke="var(--grid)" stroke-width="1" stroke-dasharray="3 3">
+    <line x1="320" y1="20" x2="320" y2="230"/>
+    <line x1="380" y1="20" x2="380" y2="230"/>
+    <line x1="500" y1="20" x2="500" y2="230"/>
+    <line x1="560" y1="20" x2="560" y2="230"/>
+  </g>
+
+  <g font-size="12">
+    <rect x="320" y="40" width="60" height="40" fill="none" stroke="var(--sub)" stroke-width="1.5" stroke-dasharray="4 4"/>
+    <text x="350" y="65" text-anchor="middle" fill="var(--sub)" font-size="10">0s</text>
+    <rect x="380" y="40" width="180" height="40" fill="none" stroke="currentColor" stroke-width="2"/>
+    <text x="470" y="65" text-anchor="middle">pp[0] &mdash; 9 bits [8:0]</text>
+  </g>
+
+  <g font-size="12">
+    <rect x="320" y="110" width="180" height="40" fill="none" stroke="var(--accent)" stroke-width="2"/>
+    <text x="410" y="135" text-anchor="middle" fill="var(--accent)">pp[1] &lt;&lt; 3 &mdash; 9 bits [11:3]</text>
+    <rect x="500" y="110" width="60" height="40" fill="none" stroke="var(--sub)" stroke-width="1.5" stroke-dasharray="4 4"/>
+    <text x="530" y="135" text-anchor="middle" fill="var(--sub)" font-size="10">0s</text>
+  </g>
+
+  <rect x="380" y="40" width="120" height="110" fill="var(--accent)" fill-opacity=".08" stroke="none"/>
+  <text x="440" y="175" text-anchor="middle" font-size="10" fill="var(--accent)">overlap: bits [8:3], both operands contribute here</text>
+
+  <rect x="320" y="195" width="240" height="40" fill="none" stroke="var(--accent2)" stroke-width="2.5"/>
+  <text x="440" y="220" text-anchor="middle" fill="var(--accent2)">sum2[0] &mdash; 12 bits [11:0]</text>
+</svg>
+<figcaption>The union of the two fields &mdash; from the lowest bit either one touches (0) to the highest (11) &mdash; is 12 bits. That's a statement about <em>positions</em>, not yet about whether the addition overflows that span.</figcaption>
+</figure>
+<p>Separately: does adding them <em>inside</em> that 12-bit span ever carry out to a 13th bit? That needs the real numbers, not just positions &mdash; max <code>pp[0]</code> = 63&times;7 = 441, max <code>pp[1]</code> = 441 too, shifted: 441&times;8 = 3528. Max possible sum = 441 + 3528 = <strong>3969</strong>. A 12-bit field holds up to 4095. 3969 &le; 4095, so no &mdash; it fits with room to spare, and that's specifically because 441 is well under the 511 a 9-bit field could theoretically hold; that slack is what absorbs the overlap without carrying out.</p>
+<p class="callout"><strong>The general rule:</strong> when you add a value to a <em>shifted</em> version of another value &mdash; exactly what happens every time partial products (or any place-value terms) get combined &mdash; the plain "two N-bit numbers need N+1 bits" rule doesn't apply directly. Work out which bit positions each term touches after its shift, take the union, and that span is your baseline width. Then separately check the real achievable maximum sum against that span to see if one more carry bit is needed on top.</p>
+<p>The same reasoning repeats, verified, at every later stage on this page &mdash; right through to the final width matching the fundamental N+M=24 rule from the multiply section above:</p>
+<div class="tablewrap">
+<table>
+<tr><th>Stage</th><th>Combine</th><th>Span</th><th>Max possible sum</th><th>Fits?</th></tr>
+<tr><td>2</td><td>9b + (9b&nbsp;&lt;&lt;&nbsp;3)</td><td>bits [11:0] &mdash; 12b</td><td>3,969</td><td>&le; 4,095 &#10003;</td></tr>
+<tr><td>3</td><td>12b + (12b&nbsp;&lt;&lt;&nbsp;6)</td><td>bits [17:0] &mdash; 18b</td><td>257,985</td><td>&le; 262,143 &#10003;</td></tr>
+<tr><td>4 (final)</td><td>18b + (18b&nbsp;&lt;&lt;&nbsp;6)</td><td>bits [23:0] &mdash; 24b</td><td>16,769,025</td><td>&le; 16,777,215 &#10003;</td></tr>
+</table>
+</div>
+
 <h3>Logic levels per stage, and why</h3>
 <p>Stage 1 isn't "free" just because it's cheap enough for one cycle &mdash; it's itself a small multiply, built from the exact same partial-product-and-reduce recipe, just small enough to clear budget X in one hop. Working it out: each 6&times;3 cell generates 3 rows (one per bit of the 3-bit operand) via AND gates (1 level), then reduces those 3 rows with 2 <em>sequential</em> adds (3 rows can't be perfectly paired, so it's a short chain, not a tree) &mdash; first a ~7-bit add (&asymp;14 levels), then an ~8-bit add on top of that (&asymp;16 levels). Total: <code>1 + 14 + 16 &asymp; 31 logic levels</code> for stage 1 &mdash; and that number has to be &le; X for this chunk size to be valid at all.</p>
 <div class="tablewrap">
