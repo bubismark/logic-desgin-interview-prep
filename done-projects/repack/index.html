@@ -262,7 +262,29 @@
 <h3>Where the address comes in</h3>
 <p>One piece hasn't been explained yet: <code>offset[0]</code>, the very first entry in the table, isn't always 0. A beat doesn't have to start at the beginning of its 32-byte slot &mdash; the real starting point comes from the transaction's actual address. AXI guarantees every beat is naturally aligned to its own size, so within one 32-byte slot there are only ever a handful of legal starting lanes for a given <code>bytes_per_beat</code> (for 16-byte beats: lane 0 or lane 16; for 8-byte beats: lane 0, 8, 16, or 24). Finding which one applies is a single AND gate &mdash; round the address's low bits <em>down</em> to the nearest multiple of <code>bytes_per_beat</code>:</p>
 <pre class="code">offset[0] = addr_low_bits &amp; ~(bytes_per_beat - 1)</pre>
-<p>That's it &mdash; one more cheap operation folded into the same once-per-transaction precompute, not a per-beat cost. (An earlier version of this page's worked example quietly assumed <code>offset[0]=0</code> for simplicity; the examples below show why that's only the special case where the address happens to land exactly on a slot boundary.)</p>
+
+<h3>The math itself, and why it works</h3>
+<p>This only works because <code>bytes_per_beat</code> is always a power of two. <strong>Rounding a number down to the nearest multiple of a power of two is exactly the same operation as zeroing out its lowest few bits</strong> &mdash; the AND/mask is just the hardware mechanism for "zero out the bottom N bits."</p>
+<p>Walking through it one piece at a time, for <code>bytes_per_beat=8</code>:</p>
+<ul>
+<li><strong>Step 1, <code>bytes_per_beat - 1</code>:</strong> a power of two is a single 1-bit followed by zeros; subtracting 1 flips that into "all 1s below it" &mdash; <code>8 = 0b01000</code>, so <code>8-1 = 7 = 0b00111</code> (exactly 3 ones, matching log&#8322;8=3).</li>
+<li><strong>Step 2, <code>~(bytes_per_beat-1)</code>:</strong> flip every bit &mdash; the low ones become zero, everything above becomes one: <code>~0b00111 = 0b11000</code>. That's a mask: ones everywhere except the bottom 3 bits.</li>
+<li><strong>Step 3, AND it with the address:</strong> ANDing lets a bit through unchanged wherever the mask is 1, and forces it to 0 wherever the mask is 0 &mdash; no matter what that bit originally was. Net effect: every upper bit of the address survives untouched; the bottom <code>log&#8322;(bytes_per_beat)</code> bits get forced to zero.</li>
+</ul>
+<p>Forcing the bottom bits to zero <em>is</em> rounding down: a multiple of 8 is, by definition, any number whose bottom 3 bits are already all zero (<code>24 = 0b11000</code>, <code>32 = 0b100000</code>). Zeroing bits can only ever decrease a value, never increase it, so the result always lands on the <strong>largest multiple of 8 that's &le; the original number</strong> &mdash; which is exactly what "round down" means. (The decimal equivalent: rounding 47 down to the nearest multiple of 10 is "replace the last digit with 0" &rarr; 40. Binary just turns "replace the low digits with 0" into a single AND gate instead of a decimal operation.)</p>
+<p>Holding the address fixed at <code>addr_low_bits=27</code> (binary <code>11011</code>) and varying only <code>bytes_per_beat</code> shows the pattern cleanly:</p>
+<div class="tablewrap">
+<table>
+<tr><th>bytes_per_beat</th><th>mask = ~(bpb-1)</th><th>27 &amp; mask</th><th>Result</th><th>Check</th></tr>
+<tr><td>1</td><td>11111</td><td>11011 &amp; 11111</td><td><strong>27</strong></td><td>already "aligned" &mdash; bpb=1 never needs rounding</td></tr>
+<tr><td>2</td><td>11110</td><td>11011 &amp; 11110</td><td><strong>26</strong></td><td>26 is the largest even number &le; 27</td></tr>
+<tr><td>4</td><td>11100</td><td>11011 &amp; 11100</td><td><strong>24</strong></td><td>24 is the largest multiple of 4 &le; 27 (28 is too big)</td></tr>
+<tr><td>8</td><td>11000</td><td>11011 &amp; 11000</td><td><strong>24</strong></td><td>24 is also the largest multiple of 8 &le; 27</td></tr>
+<tr><td>16</td><td>10000</td><td>11011 &amp; 10000</td><td><strong>16</strong></td><td>16 is the largest multiple of 16 &le; 27</td></tr>
+</table>
+</div>
+<p class="callout">As <code>bytes_per_beat</code> doubles, the mask chops off one more low bit, and the answer either stays put or drops to the next-lower valid boundary. One AND gate, correct for any power-of-two alignment, computed once per transaction &mdash; never once per beat.</p>
+<p>(An earlier version of this page's worked example quietly assumed <code>offset[0]=0</code> for simplicity; the examples below show why that's only the special case where the address happens to land exactly on a slot boundary.)</p>
 
 <h3>Where "k" comes from</h3>
 <p><code>k</code> isn't calculated from anything &mdash; it's just the beat's position in the burst: 0 for the first beat, 1 for the second, and so on up to <code>num_beats-1</code>. It's the loop counter that <em>builds</em> the table (<code>for (int k = 0; k &lt; MAX_BEATS; k++)</code> in the code below), not something derived. Every other quantity &mdash; <code>offset[k]</code>, <code>slot[k]</code>, <code>lane_start[k]</code>, <code>mask[k]</code> &mdash; is calculated <em>using</em> k as an index; k itself just counts.</p>
