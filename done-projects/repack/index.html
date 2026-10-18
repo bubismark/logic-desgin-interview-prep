@@ -292,11 +292,38 @@
 <h3>The full recipe</h3>
 <div class="steps">
 <div class="step"><div class="num">1</div><div><h3>Find where beat 0 starts</h3><p><code>offset[0] = addr_low_bits &amp; ~(bytes_per_beat-1)</code> &mdash; the only step that touches the real address; everything after this is pure counting.</p></div></div>
-<div class="step"><div class="num">2</div><div><h3>Every later beat just adds one more</h3><p><code>offset[k] = offset[k-1] + bytes_per_beat</code>, for k = 1 up to num_beats-1. One add per beat, done once, at dispatch.</p></div></div>
+<div class="step"><div class="num">2</div><div><h3>Every later beat just adds one more</h3><p><code>offset[k] = offset[k-1] + bytes_per_beat</code>, for k = 1 up to num_beats-1. <strong><code>offset</code> here is a small table with one entry per beat &mdash; up to 4 entries, not one number</strong>; <code>offset[k-1]</code> just means "look at the entry one slot back in that same table," the one computed on the previous pass of this step. One add per beat, done once, at dispatch.</p></div></div>
 <div class="step"><div class="num">3</div><div><h3>Slot = the top bits</h3><p><code>slot[k] = offset[k] &gt;&gt; 5</code> &mdash; which 32-byte output window this beat belongs to.</p></div></div>
 <div class="step"><div class="num">4</div><div><h3>Lane window = the bottom bits</h3><p><code>lane_start[k] = offset[k] mod 32</code>, <code>lane_end[k] = lane_start[k] + bytes_per_beat</code> &mdash; where within that 32-byte slot this beat's bytes land.</p></div></div>
 <div class="step"><div class="num">5</div><div><h3>Mask = a window of 1s</h3><p><code>bytes_per_beat</code> consecutive 1-bits, starting at <code>lane_start[k]</code>, inside an otherwise-zero 32-bit field.</p></div></div>
 </div>
+
+<h3>A full example, every step shown</h3>
+<p>Before compressing anything into a table, here's one transaction walked through literally one step at a time &mdash; the same numbers as Example 3 below, just with nothing skipped.</p>
+<p><strong>The setup:</strong> this transaction's <code>AWSIZE</code> says <code>bytes_per_beat=8</code>, and <code>AWLEN=3</code> means <code>num_beats = AWLEN+1 = 4</code>. The real <code>AWADDR</code> might be a wide system address &mdash; 32, 34, 40 bits, whatever the chip uses &mdash; but <strong>only its lowest 5 bits are ever touched</strong> by any of this. Those 5 bits just say where, inside <em>one</em> 32-byte slot, this transaction happens to start; everything above bit 4 only decides <em>which</em> 32-byte slot in all of memory, and plays no role in the slot/mask math at all. Say those low 5 bits are <code>11011</code> &mdash; 27 in decimal.</p>
+
+<div class="steps">
+<div class="step"><div class="num">1</div><div><h3>offset[0] from the address</h3><p><code>27 &amp; ~(8-1)</code> = <code>0b11011 &amp; 0b11000</code> = <code>0b11000</code> = <strong>24</strong>. This is the only number in the whole recipe that came from the real address &mdash; one AND gate, done.</p></div></div>
+<div class="step"><div class="num">2</div><div><h3>Build the rest of the offset table</h3><p>Starting from that single seed, add 8 three more times to fill in the other three entries:</p>
+<p><code>offset[0]=24</code> &nbsp;&rarr;&nbsp; <code>offset[1]=24+8=32</code> &nbsp;&rarr;&nbsp; <code>offset[2]=32+8=40</code> &nbsp;&rarr;&nbsp; <code>offset[3]=40+8=48</code></p>
+<p>The finished table: <code>offset = [24, 32, 40, 48]</code> &mdash; four numbers, one per beat, not one number.</p></div></div>
+<div class="step"><div class="num">3</div><div><h3>Slot for each entry</h3><p><code>slot[k] = offset[k] &gt;&gt; 5</code>, applied to all four: <code>24&gt;&gt;5=0</code>, <code>32&gt;&gt;5=1</code>, <code>40&gt;&gt;5=1</code>, <code>48&gt;&gt;5=1</code>. Slot table: <code>[0, 1, 1, 1]</code>.</p></div></div>
+<div class="step"><div class="num">4</div><div><h3>Lane window for each entry</h3><p><code>lane_start[k] = offset[k] mod 32</code>: <code>24, 0, 8, 16</code>. Then <code>lane_end[k] = lane_start[k]+8</code>: <code>32, 8, 16, 24</code>.</p></div></div>
+<div class="step"><div class="num">5</div><div><h3>Mask for each entry</h3><p>An 8-bit window of 1s at each <code>lane_start</code>: beat 0 &rarr; lanes 24&ndash;31 &rarr; <code>0xFF000000</code>; beat 1 &rarr; lanes 0&ndash;7 &rarr; <code>0x000000FF</code>; beat 2 &rarr; lanes 8&ndash;15 &rarr; <code>0x0000FF00</code>; beat 3 &rarr; lanes 16&ndash;23 &rarr; <code>0x00FF0000</code>.</p></div></div>
+</div>
+
+<p>Every number from every step, side by side &mdash; this is the whole precompute table this transaction ends up with:</p>
+<div class="tablewrap">
+<table>
+<tr><th>Step</th><th>Beat 0 (k=0)</th><th>Beat 1 (k=1)</th><th>Beat 2 (k=2)</th><th>Beat 3 (k=3)</th></tr>
+<tr><td>1&ndash;2. offset[k]</td><td>24</td><td>32</td><td>40</td><td>48</td></tr>
+<tr><td>3. slot[k]</td><td>0</td><td>1</td><td>1</td><td>1</td></tr>
+<tr><td>4. lane_start[k]</td><td>24</td><td>0</td><td>8</td><td>16</td></tr>
+<tr><td>4. lane_end[k]</td><td>32</td><td>8</td><td>16</td><td>24</td></tr>
+<tr><td>5. mask[k]</td><td>0xFF000000</td><td>0x000000FF</td><td>0x0000FF00</td><td>0x00FF0000</td></tr>
+</table>
+</div>
+<p class="callout">Only <strong>one</strong> cell in this entire table (<code>offset[0]=24</code>) ever touched the real address. Every other cell &mdash; all 19 of them &mdash; came from nothing but counting by 8 and some bit-slicing. That's the point of precomputing it all once: four small table rows, built by one AND gate and three adds, replace what would otherwise be a fresh calculation on every single beat.</p>
 
 <h3>Three worked examples</h3>
 <p><strong>Example 1 &mdash; 16-byte beats, address lands exactly on a slot boundary</strong> (the case used in the slot diagram above):</p>
