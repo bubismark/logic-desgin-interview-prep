@@ -259,6 +259,32 @@
 <figcaption>Pipelining (the theme of the companion page on this site) is the right answer when an expensive operation genuinely has to happen every cycle. The answer here is different and often cheaper: realize the operation only needs to happen <em>once per transaction</em>, and move it off the hot loop entirely.</figcaption>
 </figure>
 
+<h3>How it's calculated: a worked example</h3>
+<p>Same transaction as the slot diagram above &mdash; a 16-byte-per-beat burst, 4 beats, starting aligned to the beginning of a slot. At AW dispatch, one pass of iterative addition builds the whole table: each row's byte offset is just the previous row's offset plus <code>bytes_per_beat</code>, no multiply anywhere.</p>
+<div class="tablewrap">
+<table>
+<tr><th>beat k</th><th>bytes_per_beat</th><th>offset[k]</th><th>slot[k] = offset&gt;&gt;5</th><th>lane_start = offset mod 32</th><th>lane_end</th><th>mask[k]</th></tr>
+<tr><td>0</td><td>16</td><td>0</td><td>0</td><td>0</td><td>16</td><td>0x0000FFFF</td></tr>
+<tr><td>1</td><td>16</td><td>16</td><td>0</td><td>16</td><td>32</td><td>0xFFFF0000</td></tr>
+<tr><td>2</td><td>16</td><td>32</td><td>1</td><td>0</td><td>16</td><td>0x0000FFFF</td></tr>
+<tr><td>3</td><td>16</td><td>48</td><td>1</td><td>16</td><td>32</td><td>0xFFFF0000</td></tr>
+</table>
+</div>
+<p>Slot column comes out exactly <code>{0, 0, 1, 1}</code>, matching the diagram above. The last beat's slot (1) becomes <code>last_out_idx_r</code>, and <code>last_out_idx_r + 1 = 2</code> is the total number of output beats this transaction will produce &mdash; both read directly off this one small table, nothing recomputed later.</p>
+
+<h3>How it's used: the per-beat hot path</h3>
+<p>Every cycle in <code>ST_ACCUM</code>, the FSM does nothing more than index into this table with <code>beat_cnt</code> and compare two entries &mdash; the actual logic already shown in the implementation section below, traced here against the table above:</p>
+<div class="tablewrap">
+<table>
+<tr><th>beat_cnt</th><th>cur_slot</th><th>next_slot</th><th>is_last_in_beat</th><th>slot_boundary</th><th>beat_completes</th><th>action</th></tr>
+<tr><td>0</td><td>0</td><td>0</td><td>false</td><td>false</td><td>false</td><td>accumulate only</td></tr>
+<tr><td>1</td><td>0</td><td>1</td><td>false</td><td><strong>true</strong></td><td><strong>true</strong></td><td><strong>flush slot 0</strong></td></tr>
+<tr><td>2</td><td>1</td><td>1</td><td>false</td><td>false</td><td>false</td><td>accumulate only</td></tr>
+<tr><td>3</td><td>1</td><td>&mdash;</td><td><strong>true</strong></td><td>&ndash;</td><td><strong>true</strong></td><td><strong>flush slot 1 (final)</strong></td></tr>
+</table>
+</div>
+<p class="callout">This is the exact trace behind the earlier claim that flush fires "right after beat 1, and again after beat 3" &mdash; now with every intermediate value shown, not just the conclusion. Notice what <em>isn't</em> happening at any of these four cycles: no multiply, no shift, not even an add &mdash; just two table lookups (<code>slot_tbl[beat_cnt]</code>, <code>slot_tbl[beat_cnt+1]</code>) and an equality check. All the real arithmetic happened once, back at AW dispatch, building the table this loop just reads.</p>
+
 <h2 id="masking">Byte-lane masks</h2>
 <p>Each beat's mask is a 32-bit window of consecutive 1s, starting at <code>lane_start[k] = offset[k] mod 32</code> and running for <code>bytes_per_beat</code> bits. Generating it is a simple per-bit range check: <code>mask[k][b] = (b &ge; lane_start) &amp;&amp; (b &lt; lane_end)</code>, for every byte lane <code>b</code> &mdash; a one-hot-style window decoder, computed once per beat (from the precomputed table above, not recomputed from scratch).</p>
 
