@@ -100,7 +100,7 @@
 <p class="kicker">A real datapath block needed to multiply two 12-bit numbers every cycle. A plain <code>a * b</code> didn't meet timing. This page builds up, from the gate level, why addition, subtraction, multiplication and division each cost the logic levels they do, how bit widths grow, and the general recipe for pipelining any of them &mdash; worked through on this exact 12&times;12 case.</p>
 
 <nav class="toc" aria-label="Page sections">
-<a href="#problem">The problem</a><span class="sep">&middot;</span><a href="#logic-levels">Logic levels &amp; budget</a><span class="sep">&middot;</span><a href="#adders">Adders</a><span class="sep">&middot;</span><a href="#subtraction">Subtraction</a><span class="sep">&middot;</span><a href="#multipliers">Multipliers</a><span class="sep">&middot;</span><a href="#division">Division</a><span class="sep">&middot;</span><a href="#pipeline">Pipelining recipe</a><span class="sep">&middot;</span><a href="#worked-example">Worked example</a><span class="sep">&middot;</span><a href="#latency-throughput">Latency vs. throughput</a><span class="sep">&middot;</span><a href="#implementation">Generic implementation</a><span class="sep">&middot;</span><a href="#cheatsheet">Cheat sheet</a><span class="sep">&middot;</span><a href="#takeaways">Takeaways</a>
+<a href="#problem">The problem</a><span class="sep">&middot;</span><a href="#logic-levels">Logic levels &amp; budget</a><span class="sep">&middot;</span><a href="#adders">Adders</a><span class="sep">&middot;</span><a href="#subtraction">Subtraction</a><span class="sep">&middot;</span><a href="#multipliers">Multipliers</a><span class="sep">&middot;</span><a href="#division">Division</a><span class="sep">&middot;</span><a href="#pipeline">Pipelining recipe</a><span class="sep">&middot;</span><a href="#worked-example">Worked example</a><span class="sep">&middot;</span><a href="#comparing-splits">Comparing chunk-size choices</a><span class="sep">&middot;</span><a href="#latency-throughput">Latency vs. throughput</a><span class="sep">&middot;</span><a href="#implementation">Generic implementation</a><span class="sep">&middot;</span><a href="#cheatsheet">Cheat sheet</a><span class="sep">&middot;</span><a href="#takeaways">Takeaways</a>
 </nav>
 
 <h2 id="problem">The problem</h2>
@@ -702,6 +702,7 @@
 </svg>
 <figcaption>The union of the two fields &mdash; from the lowest bit either one touches (0) to the highest (11) &mdash; is 12 bits. That's a statement about <em>positions</em>, not yet about whether the addition overflows that span.</figcaption>
 </figure>
+<p class="callout"><strong>A distinction worth being precise about: <code>pp[1]</code> itself never becomes a 12-bit register.</strong> It stays exactly 9 bits &mdash; a shift doesn't change what the number <em>is</em>, only where its wires get connected next. "Shift left by 3" means: wire 0 of <code>pp[1]</code> connects to wire 3 of whatever it's feeding, wire 1 to wire 4, and so on &mdash; wiring, not extra flip-flops. The 12-bit width only exists at the <em>input of the adder</em> that receives both operands: <code>pp[0]</code> zero-extended with 3 extra 0s on top, and <code>pp[1]</code> zero-extended with 3 extra 0s on the bottom (because it's been slid up by the shift). Neither original 9-bit register grew &mdash; the 12-bit-ness is a property of the adder stage 2 builds, not of <code>pp[0]</code> or <code>pp[1]</code> individually.</p>
 <p>Separately: does adding them <em>inside</em> that 12-bit span ever carry out to a 13th bit? That needs the real numbers, not just positions &mdash; max <code>pp[0]</code> = 63&times;7 = 441, max <code>pp[1]</code> = 441 too, shifted: 441&times;8 = 3528. Max possible sum = 441 + 3528 = <strong>3969</strong>. A 12-bit field holds up to 4095. 3969 &le; 4095, so no &mdash; it fits with room to spare, and that's specifically because 441 is well under the 511 a 9-bit field could theoretically hold; that slack is what absorbs the overlap without carrying out.</p>
 <p class="callout"><strong>The general rule:</strong> when you add a value to a <em>shifted</em> version of another value &mdash; exactly what happens every time partial products (or any place-value terms) get combined &mdash; the plain "two N-bit numbers need N+1 bits" rule doesn't apply directly. Work out which bit positions each term touches after its shift, take the union, and that span is your baseline width. Then separately check the real achievable maximum sum against that span to see if one more carry bit is needed on top.</p>
 <p>The same reasoning repeats, verified, at every later stage on this page &mdash; right through to the final width matching the fundamental N+M=24 rule from the multiply section above:</p>
@@ -715,18 +716,76 @@
 </div>
 
 <h3>Logic levels per stage, and why</h3>
-<p>Stage 1 isn't "free" just because it's cheap enough for one cycle &mdash; it's itself a small multiply, built from the exact same partial-product-and-reduce recipe, just small enough to clear budget X in one hop. Working it out: each 6&times;3 cell generates 3 rows (one per bit of the 3-bit operand) via AND gates (1 level), then reduces those 3 rows with 2 <em>sequential</em> adds (3 rows can't be perfectly paired, so it's a short chain, not a tree) &mdash; first a ~7-bit add (&asymp;14 levels), then an ~8-bit add on top of that (&asymp;16 levels). Total: <code>1 + 14 + 16 &asymp; 31 logic levels</code> for stage 1 &mdash; and that number has to be &le; X for this chunk size to be valid at all.</p>
+<p>Stage 1 isn't "free" just because it's cheap enough for one cycle &mdash; it's itself a small multiply, built from the exact same partial-product-and-reduce recipe, just small enough to clear budget X in one hop. Working it out precisely (not approximately): each 6&times;3 cell generates 3 rows (one per bit of the 3-bit operand) via AND gates (1 level), then reduces those 3 rows with 2 <em>sequential</em> adds (3 rows can't be perfectly paired, so it's a short chain, not a tree) &mdash; first an 8-bit add (max value 63&times;3=189, so 16 levels), then a 9-bit add on top of that (max value 63&times;7=441, so 18 levels). Total: <code>1 + 16 + 18 = 35 logic levels</code> for stage 1 &mdash; and that number has to be &le; X for this chunk size to be valid at all.</p>
 <div class="tablewrap">
 <table>
-<tr><th>Stage</th><th>Operation</th><th>Width</th><th>&asymp;Logic levels</th><th>Why</th></tr>
-<tr><td>1 &mdash; generate</td><td>8&times; parallel 6-bit&times;3-bit multiplies</td><td>9b each</td><td>&asymp;31</td><td>1 (AND rows) + 2 sequential adds reducing 3 rows (&asymp;14 + &asymp;16)</td></tr>
-<tr><td>2 &mdash; reduce</td><td>4&times; pairwise adds of neighbors</td><td>12b</td><td>&asymp;24</td><td>plain add, &asymp;2&times;12 (ripple-carry rule)</td></tr>
-<tr><td>3 &mdash; reduce</td><td>2&times; pairwise adds</td><td>18b</td><td>&asymp;36</td><td>&asymp;2&times;18</td></tr>
-<tr><td>4 &mdash; reduce (final)</td><td>1&times; add &mdash; the full product</td><td>24b</td><td>&asymp;48</td><td>&asymp;2&times;24 &mdash; the widest, deepest stage, and the first candidate for a faster adder or a further split if X is tight</td></tr>
+<tr><th>Stage</th><th>Operation</th><th>Width</th><th>Logic levels</th><th>Why</th></tr>
+<tr><td>1 &mdash; generate</td><td>8&times; parallel 6-bit&times;3-bit multiplies</td><td>9b each</td><td>35</td><td>1 (AND rows) + 2 sequential adds reducing 3 rows (16 + 18)</td></tr>
+<tr><td>2 &mdash; reduce</td><td>4&times; pairwise adds of neighbors</td><td>12b</td><td>24</td><td>plain add, 2&times;12 (ripple-carry rule)</td></tr>
+<tr><td>3 &mdash; reduce</td><td>2&times; pairwise adds</td><td>18b</td><td>36</td><td>2&times;18</td></tr>
+<tr><td>4 &mdash; reduce (final)</td><td>1&times; add &mdash; the full product</td><td>24b</td><td>48</td><td>2&times;24 &mdash; the widest, deepest stage, and the first candidate for a faster adder or a further split if X is tight</td></tr>
 </table>
 </div>
-<p class="callout">These widths (9&rarr;12&rarr;18&rarr;24) are the <strong>tight theoretical minimums</strong>, derived directly from the shift amounts and chunk sizes &mdash; not reproduced from any specific implementation. Real RTL commonly carries 1&ndash;2 extra guard bits past this minimum as margin; that's a safety habit, not a requirement of the math. And stage 4's &asymp;48 levels is exactly the "faster adder or split it again" candidate flagged back in the adders section &mdash; the recipe applies recursively, one level deeper, right here.</p>
-<p>Worth noticing what chunking bought: a <em>naive</em>, un-chunked 12&times;12 (12 single-bit-masked rows instead of 8 pre-combined ones) would need <code>ceil(log&#8322;12)=4</code> tree levels on top of its own generate stage &mdash; 5 stages total. Chunking does more work <em>in parallel</em> during stage 1 (pushing each chunk's internal cost right up to the X budget, since that cost is now paid once, in parallel, not per stage) in exchange for <strong>fewer total pipeline stages</strong> afterward: 4 instead of 5.</p>
+<p class="callout">These widths (9&rarr;12&rarr;18&rarr;24) are the <strong>tight theoretical minimums</strong>, derived directly from the shift amounts and chunk sizes &mdash; not reproduced from any specific implementation. Real RTL commonly carries 1&ndash;2 extra guard bits past this minimum as margin; that's a safety habit, not a requirement of the math. And stage 4's 48 levels is exactly the "faster adder or split it again" candidate flagged back in the adders section &mdash; the recipe applies recursively, one level deeper, right here.</p>
+
+<h3>Every node in the tree, in one table</h3>
+<p>The stage summary above is the quick version. Here's every individual node &mdash; all 8 partial products plus every intermediate sum &mdash; with its inputs, shift, resulting width, and logic-level cost, so nothing is hidden behind an average.</p>
+<div class="tablewrap">
+<table>
+<tr><th>Node</th><th>=</th><th>Input widths</th><th>Shift</th><th>Output width</th><th>Max value</th><th>Logic levels</th></tr>
+<tr><td>A0&times;B0</td><td>A0 &times; B0</td><td>6b &times; 3b</td><td>0</td><td>9b</td><td>441</td><td>(stage-1 internal)</td></tr>
+<tr><td>A0&times;B1</td><td>A0 &times; B1</td><td>6b &times; 3b</td><td>3</td><td>9b</td><td>441</td><td>(stage-1 internal)</td></tr>
+<tr><td>A0&times;B2</td><td>A0 &times; B2</td><td>6b &times; 3b</td><td>6</td><td>9b</td><td>441</td><td>(stage-1 internal)</td></tr>
+<tr><td>A0&times;B3</td><td>A0 &times; B3</td><td>6b &times; 3b</td><td>9</td><td>9b</td><td>441</td><td>(stage-1 internal)</td></tr>
+<tr><td>A1&times;B0</td><td>A1 &times; B0</td><td>6b &times; 3b</td><td>6</td><td>9b</td><td>441</td><td>(stage-1 internal)</td></tr>
+<tr><td>A1&times;B1</td><td>A1 &times; B1</td><td>6b &times; 3b</td><td>9</td><td>9b</td><td>441</td><td>(stage-1 internal)</td></tr>
+<tr><td>A1&times;B2</td><td>A1 &times; B2</td><td>6b &times; 3b</td><td>12</td><td>9b</td><td>441</td><td>(stage-1 internal)</td></tr>
+<tr><td>A1&times;B3</td><td>A1 &times; B3</td><td>6b &times; 3b</td><td>15</td><td>9b</td><td>441</td><td>(stage-1 internal)</td></tr>
+<tr><td>Q0</td><td>A0&times;B0 + (A0&times;B1&lt;&lt;3)</td><td>9b + 9b</td><td>0</td><td>12b</td><td>3,969</td><td>24</td></tr>
+<tr><td>Q1</td><td>A0&times;B2 + (A0&times;B3&lt;&lt;3)</td><td>9b + 9b</td><td>6</td><td>12b</td><td>3,969</td><td>24</td></tr>
+<tr><td>Q2</td><td>A1&times;B0 + (A1&times;B1&lt;&lt;3)</td><td>9b + 9b</td><td>6</td><td>12b</td><td>3,969</td><td>24</td></tr>
+<tr><td>Q3</td><td>A1&times;B2 + (A1&times;B3&lt;&lt;3)</td><td>9b + 9b</td><td>12</td><td>12b</td><td>3,969</td><td>24</td></tr>
+<tr><td>R0</td><td>Q0 + (Q1&lt;&lt;6)</td><td>12b + 12b</td><td>0</td><td>18b</td><td>257,985</td><td>36</td></tr>
+<tr><td>R1</td><td>Q2 + (Q3&lt;&lt;6)</td><td>12b + 12b</td><td>6</td><td>18b</td><td>257,985</td><td>36</td></tr>
+<tr><td>PRODUCT</td><td>R0 + (R1&lt;&lt;6)</td><td>18b + 18b</td><td>0</td><td>24b</td><td>16,769,025</td><td>48</td></tr>
+</table>
+</div>
+<p class="callout">Note on the 8 partial products: each one's own register is exactly 9 bits (the raw value of a 6&times;3 multiply, never more, regardless of its shift) &mdash; the shift column is purely routing information for the <em>next</em> stage's adder, not a property of the register itself. See the callout above for why. Max value = 16,769,025 at the final row checks out exactly against 4095&times;4095, and width = 24 bits matches N+M=12+12 &mdash; both confirmed from the arithmetic, not assumed.</p>
+<p>Worth noticing what chunking bought: a <em>naive</em>, un-chunked 12&times;12 (12 single-bit-masked rows instead of 8 pre-combined ones), reduced the same tree-first way, comes out to 149 logic levels total if done in one un-pipelined shot &mdash; worse than this design's 143 (35+24+36+48), though the real win from chunking is fewer total pipeline <em>stages</em> (4 instead of 5), not a dramatically shorter critical path. See the next section for the full comparison across different chunk-size choices.</p>
+
+<h2 id="comparing-splits">Comparing chunk-size choices: is (6,3) actually a good pick?</h2>
+<p>The chunk sizes (6 bits for A, 3 bits for B) weren't the only option. A and B could each be split any number of ways, as long as the chunk size divides 12 evenly: 12&times;1, 6&times;2, 4&times;3, 3&times;4, 2&times;6, 1&times;12 &mdash; and A and B don't have to use the same chunk size as each other. Here's the general method for judging any choice, and what it reveals about this one.</p>
+
+<h3>The general method</h3>
+<div class="steps">
+<div class="step"><div class="num">1</div><div><h3>Depth of one small multiply</h3><p>For chunk sizes (a,b), each individual a&times;b partial product costs its own internal depth &mdash; computed by the exact same generate-then-tree-reduce recipe as the whole multiply, just at a smaller scale (this is the same recursive idea used to get stage 1's 35 levels above).</p></div></div>
+<div class="step"><div class="num">2</div><div><h3>How many partial products</h3><p><code>(12/a) &times; (12/b)</code> of them, each with a known max value <code>(2<sup>a</sup>-1)(2<sup>b</sup>-1)</code> and a known shift <code>i&times;a + j&times;b</code>.</p></div></div>
+<div class="step"><div class="num">3</div><div><h3>Reduce via a tree, pairing neighbors</h3><p>Same shift-then-add rule from above, applied repeatedly: at each level, pair the closest-shifted survivors, compute the real max value of the combination, derive the width from that, and the logic levels from <code>2&times;width</code>.</p></div></div>
+<div class="step"><div class="num">4</div><div><h3>Two different totals matter</h3><p><strong>No-pipeline total</strong> = sum of every stage's depth (what you'd need in one un-pipelined shot). <strong>Pipelined worst stage</strong> = the single deepest stage (what actually limits the clock, once every stage gets its own register).</p></div></div>
+</div>
+
+<h3>The comparison</h3>
+<div class="tablewrap">
+<table>
+<tr><th>Split (a,b)</th><th># partial products</th><th>Stage-1 depth</th><th>No-pipeline total</th><th>Pipelined worst stage</th><th>Pipeline stage count</th></tr>
+<tr><td><strong>(6,3) / (3,6)</strong> &mdash; this page's choice</td><td>8</td><td>35</td><td><strong>143</strong></td><td>48</td><td>4</td></tr>
+<tr><td>(6,6)</td><td>4</td><td>61</td><td>145</td><td><strong>61</strong></td><td><strong>3</strong></td></tr>
+<tr><td>(4,4)</td><td>9</td><td>29</td><td>175</td><td>48</td><td>5</td></tr>
+<tr><td>(3,3)</td><td>16</td><td>23</td><td>145</td><td>48</td><td>5</td></tr>
+<tr><td>(4,3) / (3,4)</td><td>12</td><td>27</td><td>159</td><td>48</td><td>5</td></tr>
+<tr><td>(2,6) / (6,2)</td><td>12</td><td>17</td><td>151</td><td>48</td><td>5</td></tr>
+<tr><td>(2,2)</td><td>36</td><td>9</td><td>179</td><td>48</td><td>7</td></tr>
+<tr><td>(12,1) &mdash; fully naive, no chunking at all</td><td>12</td><td>1</td><td>149</td><td>48</td><td>5</td></tr>
+</table>
+</div>
+<p>(Swapping a and b &mdash; (6,3) vs (3,6) &mdash; always gives identical numbers, which makes sense: multiplication doesn't care which operand you call "A".)</p>
+
+<h3>What the comparison actually shows</h3>
+<ul>
+<li><strong>There's a real trade-off curve, not one obvious winner.</strong> Tiny chunks (2,2) make each individual partial product almost free (9 levels) but explode the tree out to 36 pieces, giving the <em>worst</em> no-pipeline total of the set (179). Big chunks (6,6) make the tree tiny (just 3 stages) but make each individual partial product expensive (61 &mdash; deeper than this design's entire final stage).</li>
+<li><strong>For a pipelined design, almost none of this changes the achievable clock speed.</strong> Look at the "pipelined worst stage" column: it's 48 for nearly every split tested, because the very last combine always has to produce the full 24-bit answer no matter how you got there, and a 24-bit add is always &asymp;48 levels regardless of how the earlier stages were chunked. Chunking earlier stages doesn't make the clock faster &mdash; only (6,6) changes that number at all, and it changes it for the <em>worse</em> (61), because it pushed too much work into one ungated stage.</li>
+<li><strong>So what does chunking actually buy you, if not clock speed?</strong> Fewer total pipeline stages (less latency) and less area (smaller adders doing less wasted work on structurally-zero bits). Among the splits that hit the standard 48-level ceiling, (6,3) has the fewest stages (4) and the best no-pipeline total (143) of anything tested &mdash; a genuinely good pick, not an arbitrary one.</li>
+</ul>
 
 <h2 id="latency-throughput">Latency vs. throughput, once it's pipelined</h2>
 <p>Splitting the multiply into 4 registered stages costs you <strong>4 cycles of latency</strong> &mdash; the first result doesn't appear until the input has worked its way through every stage. But once the pipeline is full, a brand-new pair of 12-bit operands can enter on <em>every single cycle</em>, because every stage is now shallow enough to finish within one clock period. Latency and throughput are different numbers, and a deep pipeline is a perfectly good trade as long as something downstream can tolerate the delay.</p>
