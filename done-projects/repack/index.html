@@ -259,21 +259,62 @@
 <figcaption>Pipelining (the theme of the companion page on this site) is the right answer when an expensive operation genuinely has to happen every cycle. The answer here is different and often cheaper: realize the operation only needs to happen <em>once per transaction</em>, and move it off the hot loop entirely.</figcaption>
 </figure>
 
-<h3>How it's calculated: a worked example</h3>
-<p>Same transaction as the slot diagram above &mdash; a 16-byte-per-beat burst, 4 beats, starting aligned to the beginning of a slot. At AW dispatch, one pass of iterative addition builds the whole table: each row's byte offset is just the previous row's offset plus <code>bytes_per_beat</code>, no multiply anywhere.</p>
+<h3>Where the address comes in</h3>
+<p>One piece hasn't been explained yet: <code>offset[0]</code>, the very first entry in the table, isn't always 0. A beat doesn't have to start at the beginning of its 32-byte slot &mdash; the real starting point comes from the transaction's actual address. AXI guarantees every beat is naturally aligned to its own size, so within one 32-byte slot there are only ever a handful of legal starting lanes for a given <code>bytes_per_beat</code> (for 16-byte beats: lane 0 or lane 16; for 8-byte beats: lane 0, 8, 16, or 24). Finding which one applies is a single AND gate &mdash; round the address's low bits <em>down</em> to the nearest multiple of <code>bytes_per_beat</code>:</p>
+<pre class="code">offset[0] = addr_low_bits &amp; ~(bytes_per_beat - 1)</pre>
+<p>That's it &mdash; one more cheap operation folded into the same once-per-transaction precompute, not a per-beat cost. (An earlier version of this page's worked example quietly assumed <code>offset[0]=0</code> for simplicity; the examples below show why that's only the special case where the address happens to land exactly on a slot boundary.)</p>
+
+<h3>Where "k" comes from</h3>
+<p><code>k</code> isn't calculated from anything &mdash; it's just the beat's position in the burst: 0 for the first beat, 1 for the second, and so on up to <code>num_beats-1</code>. It's the loop counter that <em>builds</em> the table (<code>for (int k = 0; k &lt; MAX_BEATS; k++)</code> in the code below), not something derived. Every other quantity &mdash; <code>offset[k]</code>, <code>slot[k]</code>, <code>lane_start[k]</code>, <code>mask[k]</code> &mdash; is calculated <em>using</em> k as an index; k itself just counts.</p>
+
+<h3>The full recipe</h3>
+<div class="steps">
+<div class="step"><div class="num">1</div><div><h3>Find where beat 0 starts</h3><p><code>offset[0] = addr_low_bits &amp; ~(bytes_per_beat-1)</code> &mdash; the only step that touches the real address; everything after this is pure counting.</p></div></div>
+<div class="step"><div class="num">2</div><div><h3>Every later beat just adds one more</h3><p><code>offset[k] = offset[k-1] + bytes_per_beat</code>, for k = 1 up to num_beats-1. One add per beat, done once, at dispatch.</p></div></div>
+<div class="step"><div class="num">3</div><div><h3>Slot = the top bits</h3><p><code>slot[k] = offset[k] &gt;&gt; 5</code> &mdash; which 32-byte output window this beat belongs to.</p></div></div>
+<div class="step"><div class="num">4</div><div><h3>Lane window = the bottom bits</h3><p><code>lane_start[k] = offset[k] mod 32</code>, <code>lane_end[k] = lane_start[k] + bytes_per_beat</code> &mdash; where within that 32-byte slot this beat's bytes land.</p></div></div>
+<div class="step"><div class="num">5</div><div><h3>Mask = a window of 1s</h3><p><code>bytes_per_beat</code> consecutive 1-bits, starting at <code>lane_start[k]</code>, inside an otherwise-zero 32-bit field.</p></div></div>
+</div>
+
+<h3>Three worked examples</h3>
+<p><strong>Example 1 &mdash; 16-byte beats, address lands exactly on a slot boundary</strong> (the case used in the slot diagram above):</p>
 <div class="tablewrap">
 <table>
-<tr><th>beat k</th><th>bytes_per_beat</th><th>offset[k]</th><th>slot[k] = offset&gt;&gt;5</th><th>lane_start = offset mod 32</th><th>lane_end</th><th>mask[k]</th></tr>
-<tr><td>0</td><td>16</td><td>0</td><td>0</td><td>0</td><td>16</td><td>0x0000FFFF</td></tr>
-<tr><td>1</td><td>16</td><td>16</td><td>0</td><td>16</td><td>32</td><td>0xFFFF0000</td></tr>
-<tr><td>2</td><td>16</td><td>32</td><td>1</td><td>0</td><td>16</td><td>0x0000FFFF</td></tr>
-<tr><td>3</td><td>16</td><td>48</td><td>1</td><td>16</td><td>32</td><td>0xFFFF0000</td></tr>
+<tr><th>beat k</th><th>offset[k]</th><th>slot[k]</th><th>lane_start</th><th>lane_end</th><th>mask[k]</th></tr>
+<tr><td>0</td><td>0</td><td>0</td><td>0</td><td>16</td><td>0x0000FFFF</td></tr>
+<tr><td>1</td><td>16</td><td>0</td><td>16</td><td>32</td><td>0xFFFF0000</td></tr>
+<tr><td>2</td><td>32</td><td>1</td><td>0</td><td>16</td><td>0x0000FFFF</td></tr>
+<tr><td>3</td><td>48</td><td>1</td><td>16</td><td>32</td><td>0xFFFF0000</td></tr>
 </table>
 </div>
-<p>Slot column comes out exactly <code>{0, 0, 1, 1}</code>, matching the diagram above. The last beat's slot (1) becomes <code>last_out_idx_r</code>, and <code>last_out_idx_r + 1 = 2</code> is the total number of output beats this transaction will produce &mdash; both read directly off this one small table, nothing recomputed later.</p>
+<p>Slots <code>{0, 0, 1, 1}</code>, both output beats fully covered &mdash; the clean case.</p>
+
+<p><strong>Example 2 &mdash; same 16-byte beats, but the address starts 16 bytes into its slot</strong> (<code>addr_low_bits=16</code>, masked: <code>16 &amp; ~15 = 16</code>):</p>
+<div class="tablewrap">
+<table>
+<tr><th>beat k</th><th>offset[k]</th><th>slot[k]</th><th>lane_start</th><th>lane_end</th><th>mask[k]</th></tr>
+<tr><td>0</td><td>16</td><td>0</td><td>16</td><td>32</td><td>0xFFFF0000</td></tr>
+<tr><td>1</td><td>32</td><td>1</td><td>0</td><td>16</td><td>0x0000FFFF</td></tr>
+<tr><td>2</td><td>48</td><td>1</td><td>16</td><td>32</td><td>0xFFFF0000</td></tr>
+<tr><td>3</td><td>64</td><td>2</td><td>0</td><td>16</td><td>0x0000FFFF</td></tr>
+</table>
+</div>
+<p>Slots <code>{0, 1, 1, 2}</code> &mdash; <strong>three</strong> output beats now, not two. Slot 0 only gets its upper half written (beat 0's mask leaves the lower half at 0, correctly &mdash; this transaction never touched those bytes). Slot 1 gets fully covered by beats 1+2 combining. Slot 2 only gets its lower half, from beat 3. A design that assumed <code>offset[0]=0</code> unconditionally would get every one of these slot numbers wrong.</p>
+
+<p><strong>Example 3 &mdash; 8-byte beats, an address that isn't itself beat-aligned</strong> (<code>addr_low_bits=27</code>, binary <code>11011</code>; masked down to a multiple of 8: <code>11011 &amp; 11000 = 11000 = 24</code>):</p>
+<div class="tablewrap">
+<table>
+<tr><th>beat k</th><th>offset[k]</th><th>slot[k]</th><th>lane_start</th><th>lane_end</th><th>mask[k]</th></tr>
+<tr><td>0</td><td>24</td><td>0</td><td>24</td><td>32</td><td>0xFF000000</td></tr>
+<tr><td>1</td><td>32</td><td>1</td><td>0</td><td>8</td><td>0x000000FF</td></tr>
+<tr><td>2</td><td>40</td><td>1</td><td>8</td><td>16</td><td>0x0000FF00</td></tr>
+<tr><td>3</td><td>48</td><td>1</td><td>16</td><td>24</td><td>0x00FF0000</td></tr>
+</table>
+</div>
+<p>The masking rounds <strong>down</strong> &mdash; a raw address ending in <code>11011</code> (27) isn't 8-byte aligned at all, and the mask pulls it back to the nearest legal lane (24). Same recipe, a different <code>bytes_per_beat</code>, a messier starting address &mdash; nothing about the method changes.</p>
 
 <h3>How it's used: the per-beat hot path</h3>
-<p>Every cycle in <code>ST_ACCUM</code>, the FSM does nothing more than index into this table with <code>beat_cnt</code> and compare two entries &mdash; the actual logic already shown in the implementation section below, traced here against the table above:</p>
+<p>Using Example 1's numbers. Every cycle in <code>ST_ACCUM</code>, the FSM does nothing more than index into this table with <code>beat_cnt</code> and compare two entries &mdash; the actual logic already shown in the implementation section below, traced here against the table above:</p>
 <div class="tablewrap">
 <table>
 <tr><th>beat_cnt</th><th>cur_slot</th><th>next_slot</th><th>is_last_in_beat</th><th>slot_boundary</th><th>beat_completes</th><th>action</th></tr>
@@ -450,6 +491,10 @@ module write_repack #(
     output logic                    up_aw_ready,
     input  logic [5:0]              up_aw_bytes_per_beat, // decoded from a size field: 1,2,4,8,16,32
     input  logic [1:0]              up_aw_len,            // burst length - 1 (0..3 -> 1..4 beats)
+    input  logic [$clog2(OUT_BYTES)-1:0] up_aw_addr_lsbs,  // AWADDR's low bits -- where beat 0 sits
+                                                            // within its 32-byte output slot. Only
+                                                            // these low bits are needed: see "Where
+                                                            // the address comes in" below.
 
     // upstream data phase (one beat per cycle)
     input  logic                    up_w_valid,
@@ -557,12 +602,19 @@ module write_repack #(
     // =========================================================
     always_ff @(posedge clk) begin
         if (up_aw_valid &amp;&amp; up_aw_ready) begin
-            automatic logic [OFF_W-1:0] off = '0;
             // Safe to take the low LANE_W bits of up_aw_bytes_per_beat
             // here: a value of exactly OUT_BYTES (32) only occurs for a
             // pass-through transfer, which never reaches ST_ACCUM / this
             // precompute path at all.
             automatic logic [LANE_W-1:0] bpb = up_aw_bytes_per_beat[LANE_W-1:0];
+
+            // off[0] is NOT always zero -- beat 0 starts wherever the real
+            // address says it does. Round the address's low bits DOWN to
+            // the nearest multiple of bpb (AXI guarantees each beat is
+            // naturally aligned to its own size, so this just finds which
+            // of the few legal starting lanes applies). One AND gate,
+            // still computed only once per transaction, not once per beat.
+            automatic logic [OFF_W-1:0] off = OFF_W'(up_aw_addr_lsbs &amp; ~(bpb - 1'b1));
 
             for (int k = 0; k &lt; MAX_BEATS; k++) begin
                 slot_tbl[k] &lt;= off[OFF_W-1:LANE_W];
